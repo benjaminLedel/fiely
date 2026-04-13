@@ -42,8 +42,8 @@ The backend is a Spring Boot application written in **Kotlin**, organized into m
 ### Module Structure
 
 ```
-fiely-backend/
-├── fiely-plugin-api/              # Shared interfaces + DTOs (Kotlin, no Spring)
+fiely-backend/                          # Gradle multi-project build
+├── fiely-plugin-api/                   # Shared interfaces + DTOs (Kotlin, no Spring)
 │   └── src/main/kotlin/cloud/fiely/plugin/
 │       ├── AIProvider.kt
 │       ├── StorageProvider.kt
@@ -52,16 +52,24 @@ fiely-backend/
 │       ├── NotificationProvider.kt
 │       └── FielyApp.kt
 │
-└── fiely-core/                    # Spring Boot application
-    └── src/main/kotlin/cloud/fiely/
-        ├── auth/          # Built-in JWT authentication
-        ├── files/         # File management, chunked upload
-        ├── sharing/       # Share links, guest access
-        ├── users/         # User and team management
-        ├── ai/            # AI provider routing (delegates to plugins)
-        ├── storage/       # Built-in local filesystem storage
-        ├── plugin/        # PF4J Plugin Manager, event bridge
-        └── common/        # Shared utilities, config
+├── fiely-core/                         # Spring Boot application
+│   └── src/main/kotlin/cloud/fiely/
+│       ├── files/         # File management, chunked upload
+│       ├── sharing/       # Share links, guest access
+│       ├── users/         # User and team management
+│       ├── plugin/        # PF4J Plugin Manager, event bridge
+│       └── common/        # Shared utilities, config
+│
+└── plugins/                            # First-party plugins (monorepo)
+    ├── fiely-auth-jwt/                 # JWT / database auth (default)
+    ├── fiely-auth-oidc/                # OIDC / Keycloak
+    ├── fiely-auth-ldap/                # LDAP / Active Directory
+    ├── fiely-storage-local/            # Local filesystem (default)
+    ├── fiely-ai-ollama/                # Ollama (local AI)
+    ├── fiely-ai-openai/                # OpenAI API
+    ├── fiely-ai-claude/                # Anthropic Claude API
+    ├── fiely-processor-text/           # Text extraction (PDF, DOCX)
+    └── fiely-notify-email/             # E-Mail notifications
 ```
 
 ### Key Design Decisions

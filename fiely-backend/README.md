@@ -1,18 +1,18 @@
 # fiely-backend
 
-Spring Boot backend for [Fiely](../README.md). Modular monolith with package base `cloud.fiely`, built on Java 21 and Gradle.
+Spring Boot backend for [Fiely](../README.md). Written in **Kotlin**, built with Gradle, using a [PF4J-based plugin architecture](../docs/plugin-architecture.md).
 
 See [`docs/architecture.md`](../docs/architecture.md) for the overall design and [`CONTRIBUTING.md`](../CONTRIBUTING.md) for contribution rules.
 
 ## Prerequisites
 
-- Java 21+
+- Java 21+ (JVM)
 - A running PostgreSQL 15+ (or override `FIELY_DB_*` to point elsewhere)
 
 ## Run
 
 ```bash
-./gradlew bootRun
+./gradlew :fiely-core:bootRun
 ```
 
 The application starts on `http://localhost:8080`.
@@ -28,7 +28,7 @@ The application starts on `http://localhost:8080`.
 ### Dev profile
 
 ```bash
-SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
+SPRING_PROFILES_ACTIVE=dev ./gradlew :fiely-core:bootRun
 ```
 
 Enables SQL logging and `cloud.fiely` debug logs.
@@ -51,22 +51,35 @@ curl -s http://localhost:8080/actuator/health
 # {"status":"UP", ...}
 ```
 
-## Module layout
+## Project structure
 
 ```
-src/main/java/cloud/fiely/
-├── FielyApplication.java
-├── auth/      # Authentication, JWT, OIDC       (placeholder)
-├── files/     # File management, chunked upload (placeholder)
-├── sharing/   # Share links, guest access       (placeholder)
-├── users/     # User and team management        (placeholder)
-├── ai/        # AI provider abstraction         (placeholder)
-├── storage/   # File storage abstraction         (placeholder)
-└── common/    # Shared utilities, web, config
+fiely-backend/                          # Gradle multi-project build
+├── fiely-plugin-api/                   # Shared interfaces + DTOs (Kotlin, no Spring)
+│   └── src/main/kotlin/cloud/fiely/plugin/
+│
+├── fiely-core/                         # Spring Boot application
+│   └── src/main/kotlin/cloud/fiely/
+│       ├── files/         # File management, chunked upload
+│       ├── sharing/       # Share links, guest access
+│       ├── users/         # User and team management
+│       ├── plugin/        # PF4J Plugin Manager, event bridge
+│       └── common/        # Shared utilities, config
+│
+└── plugins/                            # First-party plugins
+    ├── fiely-auth-jwt/                 # JWT / database auth (default)
+    ├── fiely-auth-oidc/                # OIDC / Keycloak
+    ├── fiely-auth-ldap/                # LDAP / Active Directory
+    ├── fiely-storage-local/            # Local filesystem (default)
+    ├── fiely-ai-ollama/                # Ollama (local AI)
+    ├── fiely-ai-openai/                # OpenAI API
+    ├── fiely-ai-claude/                # Anthropic Claude API
+    ├── fiely-processor-text/           # Text extraction (PDF, DOCX)
+    └── fiely-notify-email/             # E-Mail notifications
 ```
 
-Each feature module owns its own controllers, services, repositories, and migrations. Cross-module access goes through public API types in `common/` or published ports in the owning module.
+Each plugin is a standalone Gradle submodule that depends on `fiely-plugin-api` (compileOnly). See [Plugin Architecture](../docs/plugin-architecture.md) for details.
 
 ## Database migrations
 
-Flyway migrations live under `src/main/resources/db/migration/`. Naming follows `V<n>__<description>.sql`. `V1__init.sql` is the baseline migration.
+Flyway migrations live under `fiely-core/src/main/resources/db/migration/`. Naming follows `V<n>__<description>.sql`. `V1__init.sql` is the baseline migration.

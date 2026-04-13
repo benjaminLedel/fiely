@@ -43,14 +43,61 @@ Fiely uses [PF4J](https://github.com/pf4j/pf4j) (Plugin Framework for Java) with
 
 ## Module Structure
 
-The plugin system is split into two Gradle submodules:
+The plugin system lives in a **Gradle multi-project build** inside `fiely-backend/`. First-party plugins (auth, storage, AI, etc.) are developed in the same monorepo alongside the core — this ensures a single CI build, consistent versioning, and easy cross-module refactoring. Third-party plugins live in their own repositories.
 
 ```
 fiely/
 └── fiely-backend/
-    ├── fiely-plugin-api/       # Shared interfaces + DTOs (no Spring dependency)
-    └── fiely-core/             # Spring Boot app + Plugin Manager + built-in defaults
+    ├── build.gradle.kts              # Root build (shared config, dependency versions)
+    ├── settings.gradle.kts           # Declares all submodules
+    │
+    ├── fiely-plugin-api/             # Shared interfaces + DTOs (Kotlin, no Spring)
+    ├── fiely-core/                   # Spring Boot app + Plugin Manager
+    │
+    └── plugins/                      # First-party plugins (monorepo)
+        ├── fiely-auth-jwt/           # Built-in JWT / database auth
+        ├── fiely-auth-oidc/          # OIDC / Keycloak
+        ├── fiely-auth-ldap/          # LDAP / Active Directory
+        ├── fiely-storage-local/      # Local filesystem storage
+        ├── fiely-ai-ollama/          # Ollama (local AI)
+        ├── fiely-ai-openai/          # OpenAI API
+        ├── fiely-ai-claude/          # Anthropic Claude API
+        ├── fiely-processor-text/     # Text extraction (PDF, DOCX)
+        └── fiely-notify-email/       # E-Mail notifications
 ```
+
+### Dependency Graph
+
+```
+                    fiely-plugin-api
+                   (Kotlin interfaces)
+                     ▲            ▲
+                     │            │
+              ┌──────┘            └──────────────┐
+              │                                  │
+         fiely-core                     plugins/* (first-party)
+    (Spring Boot app)              (each a standalone JAR)
+              │                                  │
+              │         ┌────────────────────────┘
+              ▼         ▼
+        runtime classpath:
+    core loads plugin JARs via PF4J
+```
+
+- **fiely-plugin-api** has zero Spring dependencies — only Kotlin stdlib, PF4J API, and shared DTOs.
+- **fiely-core** depends on `fiely-plugin-api` (implementation) and Spring Boot.
+- **Each plugin** depends on `fiely-plugin-api` (compileOnly) — the API is provided by the core at runtime.
+- First-party and third-party plugins use the exact same API. There is no privileged internal API for first-party plugins.
+
+### First-Party vs. Third-Party Plugins
+
+| | First-Party | Third-Party |
+|---|---|---|
+| Location | `fiely-backend/plugins/` (monorepo) | Own repository |
+| Dependency | `fiely-plugin-api` via Gradle project reference | `fiely-plugin-api` via Maven Central / GitHub Packages |
+| Build | Built together with core in CI | Built independently |
+| Distribution | Bundled with Fiely releases | Downloaded separately or via plugin marketplace |
+| Trust level | Shipped by the Fiely team | Requires admin approval for permissions |
 
 ### fiely-plugin-api
 
@@ -66,9 +113,10 @@ A **minimal** Kotlin module that both `fiely-core` and all plugins depend on. Co
 The main Spring Boot application. Contains:
 
 - `FielyPluginManager` — PF4J `SpringPluginManager` subclass
-- Built-in default implementations (JWT auth, local filesystem storage)
 - Event bridge between Spring's `ApplicationEventPublisher` and plugin listeners
 - Plugin configuration loading from `application.yml`
+- REST API, database access, business logic
+- No extension point implementations — those live in plugins
 
 ---
 
@@ -461,42 +509,65 @@ Third-party apps must declare required permissions in their `AppManifest`. The a
 
 ---
 
-## Built-in Defaults
+## Default Plugins (First-Party)
 
-The following implementations live in `fiely-core` (not as plugins) and are always available:
+The following first-party plugins ship with every Fiely release and are enabled by default. They live in the monorepo under `fiely-backend/plugins/` and are built alongside the core.
 
-| Component | Implementation | Notes |
+| Plugin | Extension Point | Notes |
 |---|---|---|
-| Auth | `JwtAuthProvider` | Default, no external dependency |
-| Storage | `LocalFilesystemStorageProvider` | Stores files on disk |
-| Notifications | `InAppNotificationProvider` | Database-backed, shown in UI |
+| `fiely-auth-jwt` | `AuthProvider` | JWT / database auth, default, no external dependency |
+| `fiely-storage-local` | `StorageProvider` | Local filesystem storage, zero config |
+| `fiely-processor-text` | `FileProcessor` | Text extraction from PDF, DOCX, TXT for search |
 
-These built-in defaults ensure Fiely works out of the box without any plugins installed. Plugins extend functionality but are never required for the core experience.
+These defaults ensure Fiely works out of the box. All other first-party plugins are opt-in:
+
+| Plugin | Extension Point | Notes |
+|---|---|---|
+| `fiely-auth-oidc` | `AuthProvider` | OIDC / Keycloak integration |
+| `fiely-auth-ldap` | `AuthProvider` | LDAP / Active Directory sync |
+| `fiely-ai-ollama` | `AIProvider` | Local AI via Ollama |
+| `fiely-ai-openai` | `AIProvider` | OpenAI API (GPT-4o) |
+| `fiely-ai-claude` | `AIProvider` | Anthropic Claude API |
+| `fiely-notify-email` | `NotificationProvider` | E-Mail notifications via SMTP |
+
+Users enable opt-in plugins by adding them to `fiely.plugins.enabled` in `application.yml` and providing the required configuration.
 
 ---
 
 ## Roadmap
 
 ### Phase 1 — Foundation
-- [ ] Set up `fiely-plugin-api` Gradle submodule with Kotlin interfaces
+- [ ] Convert `fiely-backend` to Gradle multi-project build (Kotlin)
+- [ ] Create `fiely-plugin-api` submodule with Kotlin interfaces
 - [ ] Integrate PF4J + pf4j-spring into `fiely-core`
-- [ ] Implement `StorageProvider` extension point + `LocalFilesystemStorageProvider`
-- [ ] Implement `AuthProvider` extension point + `JwtAuthProvider`
+- [ ] Implement `StorageProvider` extension point
+- [ ] Build `fiely-storage-local` plugin (local filesystem)
+- [ ] Implement `AuthProvider` extension point
+- [ ] Build `fiely-auth-jwt` plugin (JWT / database auth)
 - [ ] Plugin configuration via `application.yml`
 - [ ] Plugin lifecycle (load on startup, enable/disable via config)
 
 ### Phase 2 — AI & Processing
 - [ ] Implement `AIProvider` extension point
 - [ ] Build `fiely-ai-ollama` plugin
+- [ ] Build `fiely-ai-openai` plugin
+- [ ] Build `fiely-ai-claude` plugin
 - [ ] Implement `FileProcessor` extension point
-- [ ] Build text extraction processor (PDF, DOCX)
+- [ ] Build `fiely-processor-text` plugin (PDF, DOCX extraction)
 - [ ] Event system bridge (Spring Events → Plugin listeners)
 
-### Phase 3 — Third-Party Apps
+### Phase 3 — Auth & Notifications
+- [ ] Build `fiely-auth-oidc` plugin (Keycloak / OIDC)
+- [ ] Build `fiely-auth-ldap` plugin (LDAP / AD)
+- [ ] Implement `NotificationProvider` extension point
+- [ ] Build `fiely-notify-email` plugin (SMTP)
+
+### Phase 4 — Third-Party Apps
 - [ ] Implement `FielyApp` extension point with `AppContext`
+- [ ] Frontend plugin mechanism (webapp/ assets, manifest.json)
 - [ ] Permission model and admin approval flow
-- [ ] `NotificationProvider` extension point
 - [ ] Plugin hot-reloading (load/unload at runtime)
+- [ ] Publish `fiely-plugin-api` to Maven Central / GitHub Packages
 - [ ] Plugin marketplace / registry (future)
 
 ---
@@ -504,7 +575,8 @@ These built-in defaults ensure Fiely works out of the box without any plugins in
 ## Decisions
 
 - **Kotlin:** The entire backend will be written in Kotlin. This applies to `fiely-plugin-api`, `fiely-core`, and all first-party plugins. Spring Boot has excellent Kotlin support (null safety, coroutines, DSLs). The existing Java sources will be migrated to Kotlin.
-- **Multi-module Gradle:** The introduction of `fiely-plugin-api` and `fiely-core` as submodules requires converting the current single-module `fiely-backend` into a Gradle multi-project build.
+- **Monorepo:** First-party plugins live in the same repository under `fiely-backend/plugins/`. This means a single CI build, consistent versioning, and easy refactoring across core and plugins. Third-party plugins use their own repositories and depend on `fiely-plugin-api` via Maven Central / GitHub Packages.
+- **Multi-module Gradle:** `fiely-backend` becomes a Gradle multi-project build with `fiely-plugin-api`, `fiely-core`, and each plugin as a submodule. Shared configuration (Kotlin version, dependency versions) is managed in the root `build.gradle.kts`.
 - **Plugin UI:** Third-party apps can contribute frontend components. Each plugin JAR may include a `webapp/` directory with static assets (JS bundles, CSS). The core serves these under `/apps/{plugin-id}/` and the React frontend discovers them via a plugin manifest API (`GET /api/plugins/{id}/manifest`). This enables plugins to add pages, settings panels, or file-action buttons in the UI.
 
 ### Frontend Plugin Mechanism

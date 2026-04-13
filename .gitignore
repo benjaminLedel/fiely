@@ -66,5 +66,4 @@ venv/
 
 # Docker / local data
 docker-data/
-minio-data/
 postgres-data/

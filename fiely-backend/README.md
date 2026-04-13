@@ -61,7 +61,7 @@ src/main/java/cloud/fiely/
 ├── sharing/   # Share links, guest access       (placeholder)
 ├── users/     # User and team management        (placeholder)
 ├── ai/        # AI provider abstraction         (placeholder)
-├── storage/   # Object storage abstraction      (placeholder)
+├── storage/   # File storage abstraction         (placeholder)
 └── common/    # Shared utilities, web, config
 ```
 

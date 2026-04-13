@@ -69,7 +69,7 @@ AI providers are **pluggable** — run locally with [Ollama](https://ollama.com)
 | Backend | Spring Boot (Java) |
 | Frontend | React |
 | Mobile & Desktop | Flutter |
-| Storage | MinIO (S3-compatible) |
+| Storage | Local filesystem |
 | Database | PostgreSQL + pgvector |
 | Chunked Upload | tus.io |
 | AI (local) | Ollama |

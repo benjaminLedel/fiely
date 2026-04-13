@@ -28,8 +28,8 @@ Fiely follows a **modular monolith** approach for the backend — structured eno
 └─────────┼───────────────────────────────┼───────────────┘
           │                               │
 ┌─────────▼──────────┐       ┌────────────▼───────────────┐
-│     MinIO          │       │       PostgreSQL            │
-│  (File Storage)    │       │   + pgvector extension      │
+│   File Storage     │       │       PostgreSQL            │
+│  (local filesystem)│       │   + pgvector extension      │
 └────────────────────┘       └────────────────────────────┘
 ```
 
@@ -49,17 +49,17 @@ fiely-backend/
 │   ├── sharing/       # Share links, guest access
 │   ├── users/         # User and team management
 │   ├── ai/            # AI provider abstraction + features
-│   ├── storage/       # MinIO abstraction layer
+│   ├── storage/       # File storage abstraction layer
 │   └── common/        # Shared utilities, config
 ```
 
 ### Key Design Decisions
 
 **Chunked Upload via tus.io**
-All file uploads go through the [tus protocol](https://tus.io). This gives us resume support, progress tracking, and large file handling out of the box. The Spring Boot tus server implementation handles chunk assembly before writing to MinIO.
+All file uploads go through the [tus protocol](https://tus.io). This gives us resume support, progress tracking, and large file handling out of the box. The Spring Boot tus server implementation handles chunk assembly before writing to the file storage.
 
 **Storage Abstraction**
-The `StorageProvider` interface abstracts MinIO so that other S3-compatible backends (AWS S3, Hetzner Object Storage, local filesystem) can be swapped in via configuration — no code changes required.
+The `StorageProvider` interface abstracts file storage so that different backends (local filesystem, S3-compatible services) can be swapped in via configuration — no code changes required. The initial implementation uses the local filesystem.
 
 **AI Provider Abstraction**
 The `AIProvider` interface allows pluggable AI backends:
@@ -95,17 +95,17 @@ PostgreSQL is the primary database. The `pgvector` extension enables vector simi
 
 ---
 
-## File Storage — MinIO
+## File Storage
 
-Fiely uses MinIO as its object storage backend. MinIO is S3-compatible, self-hostable, and performant.
+Fiely stores uploaded files on the local filesystem. The storage location is configurable via `application.yml`.
 
-Files are stored with the following key structure:
+Files are stored with the following directory structure:
 
 ```
 {tenant_id}/{user_id}/{file_id}/{version}
 ```
 
-Metadata (filename, path, permissions) is stored in PostgreSQL. MinIO only holds raw bytes.
+Metadata (filename, path, permissions) is stored in PostgreSQL. The filesystem only holds raw bytes.
 
 ---
 
@@ -197,7 +197,7 @@ Fiely uses **JWT-based authentication** with optional OIDC/SSO integration.
 
 Fiely supports multiple organizations on a single instance. Tenants are isolated at the database and storage level:
 
-- Each tenant has its own storage prefix in MinIO
+- Each tenant has its own storage directory
 - Row-level security in PostgreSQL ensures cross-tenant data leakage is impossible
 - Tenant-specific AI provider configuration
 
@@ -212,7 +212,6 @@ services:
   fiely-api:      # Spring Boot backend
   fiely-web:      # React frontend (nginx)
   postgres:       # PostgreSQL + pgvector
-  minio:          # Object storage
   ollama:         # Local AI (optional)
 ```
 

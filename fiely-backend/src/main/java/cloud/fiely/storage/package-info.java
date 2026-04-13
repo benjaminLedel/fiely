@@ -1,5 +1,5 @@
 /**
- * Storage module — object storage abstraction (MinIO, S3, filesystem).
+ * Storage module — file storage abstraction (local filesystem).
  *
  * <p>Placeholder. Implementation will be added in a subsequent change.
  */

@@ -35,44 +35,60 @@ Fiely follows a **modular monolith** approach for the backend — structured eno
 
 ---
 
-## Backend — Spring Boot
+## Backend — Spring Boot (Kotlin)
 
-The backend is a single Spring Boot application, organized into modules by domain.
+The backend is a Spring Boot application written in **Kotlin**, organized into modules by domain. It uses a [PF4J-based plugin architecture](plugin-architecture.md) to make AI providers, storage backends, authentication methods, and third-party apps pluggable.
 
 ### Module Structure
 
 ```
 fiely-backend/
-├── src/main/java/cloud/fiely/
-│   ├── auth/          # Authentication, JWT, OIDC
-│   ├── files/         # File management, chunked upload
-│   ├── sharing/       # Share links, guest access
-│   ├── users/         # User and team management
-│   ├── ai/            # AI provider abstraction + features
-│   ├── storage/       # File storage abstraction layer
-│   └── common/        # Shared utilities, config
+├── fiely-plugin-api/              # Shared interfaces + DTOs (Kotlin, no Spring)
+│   └── src/main/kotlin/cloud/fiely/plugin/
+│       ├── AIProvider.kt
+│       ├── StorageProvider.kt
+│       ├── AuthProvider.kt
+│       ├── FileProcessor.kt
+│       ├── NotificationProvider.kt
+│       └── FielyApp.kt
+│
+└── fiely-core/                    # Spring Boot application
+    └── src/main/kotlin/cloud/fiely/
+        ├── auth/          # Built-in JWT authentication
+        ├── files/         # File management, chunked upload
+        ├── sharing/       # Share links, guest access
+        ├── users/         # User and team management
+        ├── ai/            # AI provider routing (delegates to plugins)
+        ├── storage/       # Built-in local filesystem storage
+        ├── plugin/        # PF4J Plugin Manager, event bridge
+        └── common/        # Shared utilities, config
 ```
 
 ### Key Design Decisions
+
+**Plugin Architecture (PF4J)**
+Core functionality (storage, auth, AI, file processing, notifications) is defined as extension point interfaces in `fiely-plugin-api`. Plugins are separate JARs loaded at runtime. See [Plugin Architecture](plugin-architecture.md) for details.
 
 **Chunked Upload via tus.io**
 All file uploads go through the [tus protocol](https://tus.io). This gives us resume support, progress tracking, and large file handling out of the box. The Spring Boot tus server implementation handles chunk assembly before writing to the file storage.
 
 **Storage Abstraction**
-The `StorageProvider` interface abstracts file storage so that different backends (local filesystem, S3-compatible services) can be swapped in via configuration — no code changes required. The initial implementation uses the local filesystem.
+The `StorageProvider` interface abstracts file storage so that different backends (local filesystem, S3-compatible services) can be swapped in via configuration — no code changes required. The built-in implementation uses the local filesystem.
 
 **AI Provider Abstraction**
 The `AIProvider` interface allows pluggable AI backends:
 
-```java
-public interface AIProvider {
-    List<Float> embed(String text);
-    String complete(String prompt);
-    String chat(List<Message> messages);
+```kotlin
+interface AIProvider : ExtensionPoint {
+    val id: String
+    val displayName: String
+    fun embed(text: String): List<Float>
+    fun complete(prompt: String): String
+    fun chat(messages: List<Message>): Flow<String>
 }
 ```
 
-Implementations: `OllamaProvider`, `OpenAIProvider`, `ClaudeProvider`. Configured via `application.yml`.
+Implementations ship as plugins: `fiely-ai-ollama`, `fiely-ai-openai`, `fiely-ai-claude`. Configured via `application.yml`.
 
 ---
 

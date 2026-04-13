@@ -501,8 +501,45 @@ These built-in defaults ensure Fiely works out of the box without any plugins in
 
 ---
 
-## Open Questions
+## Decisions
 
-- **Kotlin vs. Java:** The plugin API is designed in Kotlin. Should the entire backend migrate to Kotlin, or should `fiely-plugin-api` be the only Kotlin module? Kotlin + Spring Boot is well supported and offers better DSL capabilities for plugin development.
+- **Kotlin:** The entire backend will be written in Kotlin. This applies to `fiely-plugin-api`, `fiely-core`, and all first-party plugins. Spring Boot has excellent Kotlin support (null safety, coroutines, DSLs). The existing Java sources will be migrated to Kotlin.
 - **Multi-module Gradle:** The introduction of `fiely-plugin-api` and `fiely-core` as submodules requires converting the current single-module `fiely-backend` into a Gradle multi-project build.
-- **Plugin UI:** Should third-party apps be able to contribute frontend components (React)? This would require a frontend plugin mechanism as well.
+- **Plugin UI:** Third-party apps can contribute frontend components. Each plugin JAR may include a `webapp/` directory with static assets (JS bundles, CSS). The core serves these under `/apps/{plugin-id}/` and the React frontend discovers them via a plugin manifest API (`GET /api/plugins/{id}/manifest`). This enables plugins to add pages, settings panels, or file-action buttons in the UI.
+
+### Frontend Plugin Mechanism
+
+```
+plugin-jar/
+├── plugin.properties
+├── classes/                  # Backend code (Kotlin)
+└── webapp/                   # Frontend assets (optional)
+    ├── manifest.json         # Declares UI entry points
+    ├── index.js              # Bundled React component(s)
+    └── style.css
+```
+
+```json
+// webapp/manifest.json
+{
+  "id": "my-app",
+  "entryPoints": [
+    {
+      "type": "page",
+      "path": "/apps/my-app",
+      "label": "My App",
+      "icon": "puzzle",
+      "bundle": "index.js"
+    },
+    {
+      "type": "file-action",
+      "mimeTypes": ["application/pdf"],
+      "label": "Analyze PDF",
+      "bundle": "index.js",
+      "component": "PdfAnalyzer"
+    }
+  ]
+}
+```
+
+The React frontend loads plugin UI components dynamically via [Module Federation](https://webpack.js.org/concepts/module-federation/) or dynamic `import()`. Plugin bundles are served as static assets by the backend — no build-time coupling between core frontend and plugin frontend.

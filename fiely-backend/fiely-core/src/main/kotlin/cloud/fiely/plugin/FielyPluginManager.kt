@@ -24,10 +24,17 @@ import javax.sql.DataSource
  *     (`db/migration/V*.sql`) via the `flywayInitializer` bean.
  *  2. [PluginServices] is populated so plugins can reach the shared
  *     [DataSource] from within their own classloader.
- *  3. Plugins are loaded and resolved (JARs discovered in `fiely.plugins.dir`).
- *  4. [PluginMigrationRunner] runs each plugin's migrations using the plugin's
- *     classloader, tracked in a dedicated `flyway_plugin_<id>_history` table.
- *  5. Plugins are started and their extensions injected into the Spring context.
+ *  3. Plugins are loaded, resolved, and **started**. PF4J's
+ *     `LegacyExtensionFinder` only returns extensions for plugins in state
+ *     `STARTED`, so [getExtensions] would return an empty list before this
+ *     point. Plugin `start()` callbacks must therefore not touch the DB —
+ *     they typically just log.
+ *  4. [PluginMigrationRunner] runs each plugin's migrations using the
+ *     plugin's classloader, tracked in a dedicated
+ *     `flyway_plugin_<id>_history` table.
+ *  5. Extensions are injected into the Spring context. Beans that consume
+ *     them must do so lazily (e.g. `ObjectProvider`) — they're registered
+ *     after the rest of the context is built.
  */
 @Component
 class FielyPluginManager(
@@ -49,9 +56,13 @@ class FielyPluginManager(
         log.info("Loading plugins from {}", pluginsDir)
         loadPlugins()
 
-        runPluginMigrations()
-
+        // Start plugins BEFORE asking for extensions: PF4J's
+        // LegacyExtensionFinder filters by PluginState.STARTED. If we called
+        // getExtensions() while plugins were still RESOLVED, it would return
+        // an empty list and migrations would silently no-op.
         startPlugins()
+
+        runPluginMigrations()
 
         // Mirror what SpringPluginManager.init() normally does after startPlugins():
         val beanFactory = applicationContext.autowireCapableBeanFactory as AbstractAutowireCapableBeanFactory

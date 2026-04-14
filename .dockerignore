@@ -1,0 +1,43 @@
+# Build outputs
+**/build/
+**/.gradle/
+**/dist/
+**/node_modules/
+**/coverage/
+**/*.tsbuildinfo
+
+# Version control & CI
+.git/
+.github/
+.gitignore
+
+# Docs & misc — not needed for the image
+README.md
+CONTRIBUTING.md
+LICENSE
+docs/
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Docker / compose
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml

@@ -113,14 +113,28 @@ AI providers are **pluggable** — run locally with [Ollama](https://ollama.com)
 
 ## Self-Hosting
 
-Fiely is designed to be self-hosted. A single `docker-compose.yml` should get you running in minutes.
+Fiely ships as a **single container** — backend + frontend baked into one
+image. The root `Dockerfile` is a 3-stage build (Node for the frontend,
+Gradle for the backend, slim JRE for the runtime) that embeds the built
+React assets into Spring Boot's `static/` resources. An SPA fallback
+ensures deep links work on refresh.
 
 ```bash
-# Coming soon
-git clone https://github.com/yourusername/fiely
+git clone https://github.com/benjaminledel/fiely
 cd fiely
-docker compose up
+docker build -t fiely .
+docker run --rm -p 8080:8080 \
+  -e FIELY_DB_URL=jdbc:postgresql://host.docker.internal:5432/fiely \
+  -e FIELY_DB_USER=fiely \
+  -e FIELY_DB_PASSWORD=fiely \
+  fiely
 ```
+
+Then open http://localhost:8080. The API is available under `/api`,
+the actuator under `/actuator`, and everything else falls through to
+the React SPA.
+
+A `docker-compose.yml` with PostgreSQL is coming next.
 
 ---
 

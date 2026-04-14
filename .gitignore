@@ -67,3 +67,6 @@ venv/
 # Docker / local data
 docker-data/
 postgres-data/
+
+# Frontend dist embedded into the backend at Docker build time — never committed
+fiely-backend/fiely-core/src/main/resources/static/

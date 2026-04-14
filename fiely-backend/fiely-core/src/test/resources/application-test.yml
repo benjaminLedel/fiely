@@ -9,3 +9,9 @@ spring:
       ddl-auto: create-drop
   flyway:
     enabled: false
+
+fiely:
+  plugins:
+    # Point at an empty, temporary directory so tests don't pick up any
+    # jars from the developer's working tree.
+    dir: ${java.io.tmpdir}/fiely-test-plugins

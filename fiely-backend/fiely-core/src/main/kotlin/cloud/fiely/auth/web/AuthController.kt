@@ -7,6 +7,7 @@ import cloud.fiely.plugin.AuthType
 import cloud.fiely.plugin.TokenPair
 import cloud.fiely.plugin.UserInfo
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -22,10 +23,16 @@ import org.springframework.web.bind.annotation.RestController
  * [AuthType] and delegates to it. In a single-tenant install that's the
  * built-in `fiely-auth-jwt` plugin; multi-provider setups (e.g. DB +
  * OIDC) will be addressed in a later iteration with explicit selection.
+ *
+ * Providers are resolved through an [ObjectProvider] so we always see the
+ * current set of beans — including those that PF4J's `ExtensionsInjector`
+ * registers late, after `FielyPluginManager.init()` has run. Capturing
+ * `List<AuthProvider>` at construction time would race with plugin
+ * registration when controller bean creation happens first.
  */
 @RestController
 @RequestMapping("/api/auth")
-class AuthController(private val authProviders: List<AuthProvider>) {
+class AuthController(private val authProviders: ObjectProvider<AuthProvider>) {
 
     private val log = LoggerFactory.getLogger(AuthController::class.java)
 
@@ -61,13 +68,16 @@ class AuthController(private val authProviders: List<AuthProvider>) {
             ?: return ResponseEntity.status(401).body(ErrorResponse("Missing bearer token"))
 
         // For /me we try every provider — the token may have been issued by any of them.
-        val user = authProviders.firstNotNullOfOrNull { it.getUserInfo(token) }
+        val user = currentProviders().firstNotNullOfOrNull { it.getUserInfo(token) }
             ?: return ResponseEntity.status(401).body(ErrorResponse("Invalid or expired token"))
         return ResponseEntity.ok(user)
     }
 
     private fun providerFor(type: AuthType): AuthProvider? =
-        authProviders.firstOrNull { it.supports(type) }
+        currentProviders().firstOrNull { it.supports(type) }
+
+    /** Snapshot of all currently-registered providers (PF4J + plain Spring beans). */
+    private fun currentProviders(): List<AuthProvider> = authProviders.stream().toList()
 
     private fun handle(result: AuthResult): ResponseEntity<Any> = when (result) {
         is AuthResult.Success -> ResponseEntity.ok(LoginResponse(result.token, result.user))

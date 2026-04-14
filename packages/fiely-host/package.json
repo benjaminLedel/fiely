@@ -1,0 +1,49 @@
+{
+  "name": "@fiely/host",
+  "version": "0.1.0",
+  "description": "The Fiely plugin host contract — types, entry-point props, manifest schema, and the iframe RPC bridge.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./mount": {
+      "types": "./dist/mount.d.ts",
+      "import": "./dist/mount.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "fiely",
+    "plugin",
+    "sdk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benjaminledel/fiely.git",
+    "directory": "packages/fiely-host"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -119,9 +119,37 @@ Gradle for the backend, slim JRE for the runtime) that embeds the built
 React assets into Spring Boot's `static/` resources. An SPA fallback
 ensures deep links work on refresh.
 
+### Quick start (Docker Compose)
+
 ```bash
 git clone https://github.com/benjaminledel/fiely
 cd fiely
+docker compose up
+```
+
+That's it. The first run builds the Fiely image and starts:
+
+- **PostgreSQL 16 + pgvector** (for future semantic search) with a named
+  volume so data persists across restarts
+- **Fiely** on http://localhost:8080
+
+The API is available under `/api`, the actuator under `/actuator`, and
+everything else falls through to the React SPA. To stop and clean up:
+
+```bash
+docker compose down            # stop, keep data
+docker compose down -v         # stop and delete the postgres volume
+```
+
+Copy `.env.example` to `.env` to override the port or database credentials.
+Defaults are safe for local-only dev — **change the password before exposing
+Fiely to anything real**.
+
+### Build the image manually
+
+If you don't want compose:
+
+```bash
 docker build -t fiely .
 docker run --rm -p 8080:8080 \
   -e FIELY_DB_URL=jdbc:postgresql://host.docker.internal:5432/fiely \
@@ -129,12 +157,6 @@ docker run --rm -p 8080:8080 \
   -e FIELY_DB_PASSWORD=fiely \
   fiely
 ```
-
-Then open http://localhost:8080. The API is available under `/api`,
-the actuator under `/actuator`, and everything else falls through to
-the React SPA.
-
-A `docker-compose.yml` with PostgreSQL is coming next.
 
 ---
 

@@ -1,0 +1,52 @@
+# Fiely — quick start.
+#
+# One command to get both PostgreSQL (with pgvector, for future semantic
+# search) and the all-in-one Fiely container running on http://localhost:8080.
+#
+#     docker compose up
+#
+# Copy `.env.example` to `.env` and tweak the secrets before running anything
+# you care about. Everything defaults to local-only dev values.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${FIELY_DB_NAME:-fiely}
+      POSTGRES_USER: ${FIELY_DB_USER:-fiely}
+      POSTGRES_PASSWORD: ${FIELY_DB_PASSWORD:-fiely}
+    volumes:
+      - fiely-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER:-fiely} -d $${POSTGRES_DB:-fiely}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    # Uncomment to connect from the host (e.g. psql, GUI tools).
+    # ports:
+    #   - "5432:5432"
+
+  fiely:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fiely:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FIELY_DB_URL: jdbc:postgresql://postgres:5432/${FIELY_DB_NAME:-fiely}
+      FIELY_DB_USER: ${FIELY_DB_USER:-fiely}
+      FIELY_DB_PASSWORD: ${FIELY_DB_PASSWORD:-fiely}
+    ports:
+      - "${FIELY_PORT:-8080}:8080"
+
+volumes:
+  fiely-postgres-data:

@@ -1,2 +1,1 @@
-cloud.fiely.plugin.auth.jwt.AuthJwtMigrations
 cloud.fiely.plugin.auth.jwt.DatabaseAuthProvider

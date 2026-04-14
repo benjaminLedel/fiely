@@ -16,18 +16,15 @@ import javax.sql.DataSource
  * extension point.
  *
  * Each plugin gets its own `flyway_plugin_<sanitised-id>_history` table so
- * plugin migrations are tracked independently from core migrations, and from
+ * plugin migrations are tracked independently from core migrations and from
  * each other. Migration scripts live inside the plugin JAR.
  *
- * **Why we extract migrations to a temp directory rather than passing
- * `classpath:` locations to Flyway**: Flyway 10's classpath scanner doesn't
- * reliably enumerate JAR entries when given a non-system classloader (e.g.
- * PF4J's `PluginClassLoader`). It silently returns zero SQL files and reports
- * a successful migration of nothing — exactly the failure mode we hit on PR
- * #2 (`Plugin '...' migrations applied: 0 (success=true)` while the table the
- * test queried didn't exist). Extracting via the plugin classloader (which
- * does work) and then handing Flyway a `filesystem:` location sidesteps that
- * scanner entirely.
+ * **Why we extract migrations to a temp directory**: Flyway 10's classpath
+ * scanner doesn't reliably enumerate JAR entries when given a non-system
+ * classloader (e.g. PF4J's `PluginClassLoader`) — it silently returns zero
+ * SQL files. We side-step the scanner by reading the migrations through the
+ * plugin classloader ourselves (which works) and handing Flyway a
+ * `filesystem:` location pointing at a temp directory.
  */
 class PluginMigrationRunner(private val dataSource: DataSource) {
 
@@ -47,13 +44,19 @@ class PluginMigrationRunner(private val dataSource: DataSource) {
         for (loc in locations) {
             val classpathPath = loc.removePrefix("classpath:").trimStart('/')
             val targetDir = tempRoot.resolve(classpathPath).also { Files.createDirectories(it) }
-            val copied = extractClasspathDir(classLoader, classpathPath, targetDir)
-            totalFiles += copied
+            totalFiles += extractClasspathDir(classLoader, classpathPath, targetDir)
             filesystemLocations.add("filesystem:${targetDir.toAbsolutePath()}")
+        }
+        if (totalFiles == 0) {
+            log.warn(
+                "Plugin '{}' declared migrations at {} but no SQL files were found",
+                extension.pluginId, locations,
+            )
+            return
         }
 
         log.info(
-            "Running migrations for plugin '{}' from {} (extracted {} file(s); history: {})",
+            "Running migrations for plugin '{}' from {} ({} file(s); history: {})",
             extension.pluginId, locations, totalFiles, historyTable,
         )
 
@@ -81,10 +84,7 @@ class PluginMigrationRunner(private val dataSource: DataSource) {
      */
     private fun extractClasspathDir(classLoader: ClassLoader, classpathPath: String, targetDir: Path): Int {
         val urls = classLoader.getResources(classpathPath).toList()
-        if (urls.isEmpty()) {
-            log.warn("Migration location '{}' resolved to no resources via classloader", classpathPath)
-            return 0
-        }
+        if (urls.isEmpty()) return 0
         var count = 0
         for (url in urls) {
             count += when (url.protocol) {

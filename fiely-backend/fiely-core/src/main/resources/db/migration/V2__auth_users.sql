@@ -1,9 +1,12 @@
--- V1__auth_users.sql
--- Schema owned by the fiely-auth-jwt plugin.
+-- V2__auth_users.sql
+-- Core user store, owned by the core schema and shared by any AuthProvider
+-- plugin that authenticates against a local identity (e.g. fiely-auth-jwt).
 --
--- Tracked in its own history table (`flyway_plugin_fiely_auth_jwt_history`)
--- by the core's PluginMigrationRunner, so it is independent of the core
--- schema and of other plugins.
+-- Auth plugins query and write to this table via the shared DataSource;
+-- they do NOT ship their own copy of it. Plugins that need *additional*,
+-- private state (sessions, refresh-token revocation lists, OIDC nonces, …)
+-- can still ship their own migrations via the PluginMigrations extension
+-- point — see docs/plugin-architecture.md.
 
 CREATE TABLE IF NOT EXISTS auth_users (
     id             UUID         PRIMARY KEY,

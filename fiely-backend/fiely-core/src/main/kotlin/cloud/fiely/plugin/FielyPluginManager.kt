@@ -72,23 +72,17 @@ class FielyPluginManager(
     }
 
     private fun runPluginMigrations() {
-        // Iterate started plugins explicitly and ask each for its
-        // PluginMigrations extensions. Going via getExtensions(Class, pluginId)
-        // is more robust than the global getExtensions(Class) lookup, which in
-        // some PF4J configurations filters extensions in surprising ways.
         val started = getStartedPlugins()
-        log.info("runPluginMigrations: scanning {} started plugin(s)", started.size)
         if (started.isEmpty()) return
 
         val runner = PluginMigrationRunner(dataSource)
         for (wrapper in started) {
             val pluginId = wrapper.descriptor.pluginId
             val classLoader = wrapper.pluginClassLoader
+            // Iterate started plugins explicitly and ask each for its
+            // PluginMigrations extensions. Going via the per-plugin variant
+            // of getExtensions is more robust than the global lookup.
             val migrations = getExtensions(PluginMigrations::class.java, pluginId)
-            log.info(
-                "runPluginMigrations: plugin '{}' contributes {} PluginMigrations extension(s)",
-                pluginId, migrations.size,
-            )
             for (ext in migrations) {
                 runner.migrate(ext, classLoader)
             }

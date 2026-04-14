@@ -457,11 +457,21 @@ handling traffic.
 See `PluginMigrationRunner` in `fiely-core` for the exact implementation.
 
 Guidelines:
-- Table names should be prefixed or namespaced (`auth_users`, not just `users`) to
-  avoid collisions with core or other plugins.
+- Table names should be prefixed or namespaced (`oidc_sessions`, `ldap_sync_state`,
+  not just `sessions` / `state`) to avoid collisions with core or other plugins.
 - Plugins should not reference tables owned by other plugins — cross-plugin data
   access goes through service APIs, not the database.
 - Down-migrations are not supported; plugins must always move forward.
+- **Shared core schemas stay in core**: things like `auth_users` (the local user
+  store that any auth provider plugin may read or write to) live in the core's
+  `db/migration/V*.sql` rather than in a plugin's migrations. A plugin that
+  needs *additional, private* state — e.g. session storage, refresh-token
+  revocation lists, OIDC nonce caches — uses `PluginMigrations` for that.
+- The `PluginMigrationRunner` extracts plugin SQL files from the plugin JAR to
+  a temp directory and hands Flyway a `filesystem:` location, because Flyway's
+  classpath scanner doesn't reliably enumerate JAR entries when given a
+  non-system classloader. Plugin authors don't need to think about this — just
+  ship the SQL on the classpath as shown above.
 
 ---
 

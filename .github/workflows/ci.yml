@@ -34,8 +34,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: ./gradlew build --info 2>&1 | tee /tmp/gradle.log
-        shell: bash
+        run: ./gradlew build
 
       - name: Print failing test details
         if: failure()
@@ -81,26 +80,6 @@ jobs:
           if not any_failure:
               print("No <failure> or <error> elements found in any TEST-*.xml")
           PY
-
-          # Surface plugin-init log lines as annotations.
-          if [ -f /tmp/gradle.log ]; then
-            python3 - <<'PY'
-          import re
-          rx = re.compile(r'FielyPluginManager|PluginMigration|fiely-auth-jwt|loadPlugins|Loading plugins from|Plugin manager started|Skipping PluginMigrations|runPluginMigrations|scanning|contributes')
-          lines = [ln.rstrip() for ln in open('/tmp/gradle.log') if rx.search(ln)]
-          if lines:
-              chunk, size, idx = [], 0, 0
-              for ln in lines[:300]:
-                  if size + len(ln) > 4000 and chunk:
-                      msg = '%0A'.join(chunk).replace('%','%25')
-                      print(f"::warning title=Plugin init log (chunk {idx})::{msg}")
-                      idx += 1; chunk, size = [], 0
-                  chunk.append(ln); size += len(ln)
-              if chunk:
-                  msg = '%0A'.join(chunk).replace('%','%25')
-                  print(f"::warning title=Plugin init log (chunk {idx})::{msg}")
-          PY
-          fi
 
       - name: Upload test reports
         if: failure()

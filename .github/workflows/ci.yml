@@ -39,15 +39,37 @@ jobs:
       - name: Print failing test details
         if: failure()
         run: |
-          echo "::group::JUnit XML reports for failed tests"
+          echo "::group::All test result XML files"
           shopt -s globstar nullglob
-          for f in fiely-backend/**/build/test-results/test/TEST-*.xml; do
+          # `working-directory: fiely-backend` (job defaults) is in effect.
+          mapfile -t xml_files < <(printf '%s\n' **/build/test-results/test/TEST-*.xml)
+          if [ "${#xml_files[@]}" -eq 0 ]; then
+            echo "No TEST-*.xml files were produced — failure happened before tests ran."
+          else
+            for f in "${xml_files[@]}"; do
+              echo "found: $f"
+            done
+          fi
+          echo "::endgroup::"
+
+          echo "::group::Failing tests (full XML)"
+          any=false
+          for f in "${xml_files[@]}"; do
             if grep -q -E '<(failure|error)' "$f"; then
+              any=true
               echo "=================================================="
               echo "::error::Failures in $f"
               cat "$f"
               echo
             fi
+          done
+          $any || echo "No <failure> or <error> elements in any TEST-*.xml."
+          echo "::endgroup::"
+
+          echo "::group::Standard out / err captured by Gradle"
+          for f in **/build/test-results/test/*.xml; do : ; done
+          for d in **/build/reports/tests/test; do
+            [ -d "$d" ] && echo "report dir: $d (see uploaded artifact)"
           done
           echo "::endgroup::"
 

@@ -165,28 +165,41 @@ docker run --rm -p 8080:8080 \
   fiely
 ```
 
-### Development (HMR for the frontend)
+### Development (single port, live frontend rebuilds)
 
-There's a separate dev overlay that adds a Vite dev server with hot
-module reload and forces a local build of the backend:
+A dev overlay gives you a single exposed port (**8080**) with the
+frontend rebuilding on every source save. Spring Boot serves both the
+API and the freshly-built frontend bytes — no second dev server, no
+proxy, no CORS.
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
 
-| Service | URL | Purpose |
-|---|---|---|
-| `fiely-frontend-dev` | http://localhost:5173 | Vite dev server, HMR on save |
-| `fiely` | http://localhost:8080 | Backend (API + baked frontend, unused in dev) |
-| `postgres` | — | PostgreSQL 16 + pgvector |
+| Service | Role |
+|---|---|
+| `fiely` | http://localhost:8080 — API + SPA, reads frontend from a shared volume |
+| `fiely-frontend-watch` | `vite build --watch`, writes `dist/` to the shared volume |
+| `postgres` | PostgreSQL 16 + pgvector |
 
-Open **http://localhost:5173** — Vite proxies `/api` and `/actuator` to
-the backend container, so the frontend talks to a real backend without
-CORS hassle. Edits under `fiely-frontend/src/` hot-reload instantly.
+How it works: Vite runs in incremental watch mode and writes into a
+named volume. The backend is configured with
+`spring.web.resources.static-locations=file:/app/frontend-dist/,classpath:/static/`
+so it serves the live dist first and falls back to the version baked
+into the image. A healthcheck on the watcher blocks the backend until
+the first build is done, so you never see a 404 on initial load.
 
-Backend code changes still need `docker compose build fiely` + `up -d`;
-Spring DevTools-style restart can be enabled by uncommenting the env var
-in `docker-compose.dev.yml`.
+Workflow: edit `fiely-frontend/src/…` → Vite rebuilds in under a
+second → refresh the browser.
+
+Backend code changes still need `docker compose build fiely` +
+`up -d` to pick up the new JAR.
+
+> **Want React Fast Refresh with preserved state?** That's a full Vite
+> dev server, which can't share a port with Spring. Run
+> `docker compose up postgres fiely` for DB+backend, then on the host
+> `cd fiely-frontend && npm run dev` — Vite's proxy (see
+> `vite.config.ts`) forwards `/api` to :8080 and you open :5173.
 
 ---
 

@@ -414,6 +414,55 @@ fiely:
 
 Plugins access their own config via `AppContext.getConfig()` or PF4J's built-in configuration mechanism.
 
+Plugins outside the `FielyApp` sandbox (e.g. `AuthProvider`, `StorageProvider`) can read
+their settings through the lightweight service locator `PluginServices`:
+
+```kotlin
+val config = PluginServices.configFor("fiely-auth-jwt")
+val secret = config["secret"] as? String
+```
+
+---
+
+## Plugin Database Migrations
+
+Plugins that need their own schema — e.g. `fiely-auth-jwt` owns `auth_users` — declare
+migrations via the `PluginMigrations` extension point:
+
+```kotlin
+@Extension
+class AuthJwtMigrations : PluginMigrations {
+    override val pluginId = "fiely-auth-jwt"
+    override val migrationLocations =
+        listOf("classpath:db/migration/fiely-auth-jwt")
+}
+```
+
+SQL files are shipped inside the plugin JAR using Flyway's standard naming convention:
+
+```
+plugin-jar/
+└── db/migration/fiely-auth-jwt/
+    ├── V1__auth_users.sql
+    └── V2__add_index.sql
+```
+
+The core runs a **separate Flyway instance per plugin** using the plugin's own
+classloader. Each plugin gets a dedicated history table
+(`flyway_plugin_<sanitised-id>_history`) so plugin schema evolution is tracked
+independently of the core and of other plugins. Plugin migrations run **after**
+the core schema has been migrated but **before** the plugin's extensions start
+handling traffic.
+
+See `PluginMigrationRunner` in `fiely-core` for the exact implementation.
+
+Guidelines:
+- Table names should be prefixed or namespaced (`auth_users`, not just `users`) to
+  avoid collisions with core or other plugins.
+- Plugins should not reference tables owned by other plugins — cross-plugin data
+  access goes through service APIs, not the database.
+- Down-migrations are not supported; plugins must always move forward.
+
 ---
 
 ## Plugin Development (Third-Party)

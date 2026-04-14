@@ -72,33 +72,28 @@ class FielyPluginManager(
     }
 
     private fun runPluginMigrations() {
-        val migrations = getExtensions(PluginMigrations::class.java)
-        if (migrations.isEmpty()) {
-            log.debug("No plugin migrations to run")
-            return
-        }
+        // Iterate started plugins explicitly and ask each for its
+        // PluginMigrations extensions. Going via getExtensions(Class, pluginId)
+        // is more robust than the global getExtensions(Class) lookup, which in
+        // some PF4J configurations filters extensions in surprising ways.
+        val started = getStartedPlugins()
+        log.info("runPluginMigrations: scanning {} started plugin(s)", started.size)
+        if (started.isEmpty()) return
+
         val runner = PluginMigrationRunner(dataSource)
-        migrations.forEach { ext ->
-            val classLoader = classLoaderFor(ext)
-            if (classLoader == null) {
-                // PF4J's extension finder also scans the system classloader,
-                // which would let migrations from non-plugin sources execute
-                // unintentionally (e.g. when a plugin module is on the test
-                // classpath). Plugin migrations must come from a real plugin.
-                log.warn(
-                    "Skipping PluginMigrations extension '{}' — not owned by any loaded plugin",
-                    ext.pluginId,
-                )
-                return@forEach
+        for (wrapper in started) {
+            val pluginId = wrapper.descriptor.pluginId
+            val classLoader = wrapper.pluginClassLoader
+            val migrations = getExtensions(PluginMigrations::class.java, pluginId)
+            log.info(
+                "runPluginMigrations: plugin '{}' contributes {} PluginMigrations extension(s)",
+                pluginId, migrations.size,
+            )
+            for (ext in migrations) {
+                runner.migrate(ext, classLoader)
             }
-            runner.migrate(ext, classLoader)
         }
     }
-
-    private fun classLoaderFor(extension: Any): ClassLoader? =
-        getPlugins().firstOrNull { wrapper ->
-            wrapper.pluginClassLoader === extension.javaClass.classLoader
-        }?.pluginClassLoader
 
     companion object {
         private fun resolvePluginsRoot(env: ConfigurableEnvironment): Path {

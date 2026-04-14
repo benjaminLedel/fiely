@@ -34,7 +34,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: ./gradlew build --info --stacktrace
+        run: ./gradlew build --info --stacktrace 2>&1 | tee /tmp/gradle.log
+        shell: bash
 
       - name: Print failing test details
         if: failure()
@@ -80,6 +81,46 @@ jobs:
           if not any_failure:
               print("No <failure> or <error> elements found in any TEST-*.xml")
           PY
+
+          echo "::group::Plugin / PF4J init lines from Gradle log"
+          if [ -f /tmp/gradle.log ]; then
+            # The interesting lines from Spring init.
+            grep -nE 'FielyPluginManager|PluginMigration|pf4j|PF4J|fiely-auth-jwt|loadPlugins|extensions\.idx|Loading plugins from|Plugin manager started|No plugin migrations|Skipping PluginMigrations' /tmp/gradle.log | head -200 || echo "(no matches)"
+          else
+            echo "/tmp/gradle.log not found"
+          fi
+          echo "::endgroup::"
+
+          # Also surface the plugin-loading lines as annotations so they're
+          # visible via the API without auth.
+          if [ -f /tmp/gradle.log ]; then
+            python3 - <<'PY'
+          import re
+          patterns = [
+              r'FielyPluginManager', r'PluginMigration', r'fiely-auth-jwt',
+              r'loadPlugins', r'Loading plugins from', r'Plugin manager started',
+              r'Skipping PluginMigrations', r'No plugin migrations',
+          ]
+          rx = re.compile('|'.join(patterns))
+          lines = []
+          with open('/tmp/gradle.log') as f:
+              for line in f:
+                  if rx.search(line):
+                      lines.append(line.rstrip())
+          if lines:
+              # Pack into chunks under GitHub's annotation size limit (~64KB).
+              chunk, size, idx = [], 0, 0
+              for ln in lines[:200]:
+                  if size + len(ln) > 4000 and chunk:
+                      msg = '%0A'.join(chunk).replace('%','%25')
+                      print(f"::warning title=Plugin init log (chunk {idx})::{msg}")
+                      idx += 1; chunk, size = [], 0
+                  chunk.append(ln); size += len(ln)
+              if chunk:
+                  msg = '%0A'.join(chunk).replace('%','%25')
+                  print(f"::warning title=Plugin init log (chunk {idx})::{msg}")
+          PY
+          fi
 
       - name: Upload test reports
         if: failure()

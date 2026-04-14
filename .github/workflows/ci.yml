@@ -34,7 +34,22 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build and test
-        run: ./gradlew build
+        run: ./gradlew build --info --stacktrace
+
+      - name: Print failing test details
+        if: failure()
+        run: |
+          echo "::group::JUnit XML reports for failed tests"
+          shopt -s globstar nullglob
+          for f in fiely-backend/**/build/test-results/test/TEST-*.xml; do
+            if grep -q -E '<(failure|error)' "$f"; then
+              echo "=================================================="
+              echo "::error::Failures in $f"
+              cat "$f"
+              echo
+            fi
+          done
+          echo "::endgroup::"
 
       - name: Upload test reports
         if: failure()

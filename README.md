@@ -165,6 +165,29 @@ docker run --rm -p 8080:8080 \
   fiely
 ```
 
+### Development (HMR for the frontend)
+
+There's a separate dev overlay that adds a Vite dev server with hot
+module reload and forces a local build of the backend:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+| Service | URL | Purpose |
+|---|---|---|
+| `fiely-frontend-dev` | http://localhost:5173 | Vite dev server, HMR on save |
+| `fiely` | http://localhost:8080 | Backend (API + baked frontend, unused in dev) |
+| `postgres` | — | PostgreSQL 16 + pgvector |
+
+Open **http://localhost:5173** — Vite proxies `/api` and `/actuator` to
+the backend container, so the frontend talks to a real backend without
+CORS hassle. Edits under `fiely-frontend/src/` hot-reload instantly.
+
+Backend code changes still need `docker compose build fiely` + `up -d`;
+Spring DevTools-style restart can be enabled by uncommenting the env var
+in `docker-compose.dev.yml`.
+
 ---
 
 ## Contributing

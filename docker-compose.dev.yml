@@ -1,0 +1,57 @@
+# Fiely — development overlay.
+#
+# Run alongside the base compose with:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# What this changes vs. the base:
+#
+# - The `fiely` backend is built locally from the current checkout (never
+#   pulled from GHCR) so changes to Kotlin sources can be rebuilt with
+#   `docker compose build fiely`.
+# - A new `fiely-frontend-dev` service runs the Vite dev server on :5173
+#   with HMR, volume-mounted from ./fiely-frontend so edits are instant.
+#   It proxies /api and /actuator to the backend container.
+# - The baked-in frontend inside the backend image is still served at
+#   :8080, but during dev you open :5173 instead.
+#
+# Open http://localhost:5173 for the HMR-enabled UI.
+
+services:
+  fiely:
+    image: fiely:dev
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Optional: uncomment to enable Spring DevTools-style restart when
+    # mounting a freshly-built JAR. For now we rely on `docker compose
+    # build fiely` + `up -d` to pick up backend changes.
+    # environment:
+    #   SPRING_DEVTOOLS_RESTART_ENABLED: "true"
+
+  fiely-frontend-dev:
+    image: node:22-alpine
+    working_dir: /workspace
+    # `npm ci` on first start, then vite dev with --host so the server
+    # binds 0.0.0.0 and is reachable from the host.
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host"
+    depends_on:
+      - fiely
+    environment:
+      VITE_API_PROXY: http://fiely:8080
+      # Vite's file watcher needs polling inside most Linux containers,
+      # especially when source lives on a bind-mounted host FS.
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./fiely-frontend:/workspace
+      # Keep node_modules inside the container (named volume) so host
+      # platform differences (macOS/Windows) don't break native deps.
+      - fiely-frontend-node-modules:/workspace/node_modules
+    ports:
+      - "${FIELY_FRONTEND_PORT:-5173}:5173"
+    restart: unless-stopped
+
+volumes:
+  fiely-frontend-node-modules:

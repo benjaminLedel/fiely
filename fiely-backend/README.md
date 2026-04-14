@@ -51,6 +51,16 @@ curl -s http://localhost:8080/actuator/health
 # {"status":"UP", ...}
 ```
 
+## API documentation
+
+Fiely ships with [springdoc-openapi](https://springdoc.org/). Once the application is running:
+
+- **OpenAPI 3 spec (JSON):** <http://localhost:8080/v3/api-docs>
+- **OpenAPI 3 spec (YAML):** <http://localhost:8080/v3/api-docs.yaml>
+- **Swagger UI:** <http://localhost:8080/swagger-ui.html>
+
+The spec is generated from `@RestController` classes at runtime, so endpoints contributed by loaded plugins show up automatically. See `cloud.fiely.common.web.OpenApiConfig` for the top-level metadata and the shared `bearerAuth` security scheme.
+
 ## Project structure
 
 ```

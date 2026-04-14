@@ -34,3 +34,18 @@ management:
   endpoint:
     health:
       show-details: always
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    display-request-duration: true
+  # Scan every bean annotated with @RestController (the default). Plugin
+  # controllers loaded via PF4J end up as regular Spring beans in the
+  # parent context, so they are picked up automatically.
+  show-actuator: false

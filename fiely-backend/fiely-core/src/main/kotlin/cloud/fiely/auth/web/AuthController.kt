@@ -6,6 +6,12 @@ import cloud.fiely.plugin.AuthResult
 import cloud.fiely.plugin.AuthType
 import cloud.fiely.plugin.TokenPair
 import cloud.fiely.plugin.UserInfo
+import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.responses.ApiResponse
+import io.swagger.v3.oas.annotations.responses.ApiResponses
+import io.swagger.v3.oas.annotations.security.SecurityRequirement
+import io.swagger.v3.oas.annotations.security.SecurityRequirements
+import io.swagger.v3.oas.annotations.tags.Tag
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.http.ResponseEntity
@@ -32,11 +38,28 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 @RequestMapping("/api/auth")
+@Tag(
+    name = "Auth",
+    description = "Authentication endpoints delegating to the active AuthProvider plugin.",
+)
 class AuthController(private val authProviders: ObjectProvider<AuthProvider>) {
 
     private val log = LoggerFactory.getLogger(AuthController::class.java)
 
     @PostMapping("/login")
+    @Operation(
+        summary = "Exchange credentials for a token pair",
+        description = "Forwards username/password to the first AuthProvider that supports " +
+            "USERNAME_PASSWORD. Returns access + refresh tokens on success.",
+    )
+    @SecurityRequirements // public endpoint
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "Authentication succeeded"),
+            ApiResponse(responseCode = "401", description = "Invalid credentials or MFA required"),
+            ApiResponse(responseCode = "503", description = "No auth provider is available"),
+        ],
+    )
     fun login(@RequestBody body: LoginRequest): ResponseEntity<Any> {
         val provider = providerFor(AuthType.USERNAME_PASSWORD)
             ?: return serviceUnavailable("No auth provider available")
@@ -52,6 +75,18 @@ class AuthController(private val authProviders: ObjectProvider<AuthProvider>) {
     }
 
     @PostMapping("/refresh")
+    @Operation(
+        summary = "Refresh an access token",
+        description = "Trades a valid refresh token for a new access/refresh token pair.",
+    )
+    @SecurityRequirements // public endpoint — the refresh token lives in the request body
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "Refresh succeeded"),
+            ApiResponse(responseCode = "401", description = "Invalid or expired refresh token"),
+            ApiResponse(responseCode = "503", description = "No auth provider is available"),
+        ],
+    )
     fun refresh(@RequestBody body: RefreshRequest): ResponseEntity<Any> {
         val provider = providerFor(AuthType.USERNAME_PASSWORD)
             ?: return serviceUnavailable("No auth provider available")
@@ -62,6 +97,18 @@ class AuthController(private val authProviders: ObjectProvider<AuthProvider>) {
     }
 
     @GetMapping("/me")
+    @Operation(
+        summary = "Resolve the current user from a bearer token",
+        description = "Iterates all registered AuthProviders and returns the user info for " +
+            "the first one that recognises the token.",
+        security = [SecurityRequirement(name = "bearerAuth")],
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(responseCode = "200", description = "Token resolved to a user"),
+            ApiResponse(responseCode = "401", description = "Missing, invalid or expired bearer token"),
+        ],
+    )
     fun me(@RequestHeader("Authorization", required = false) auth: String?): ResponseEntity<Any> {
         val token = auth?.takeIf { it.startsWith(BEARER_PREFIX, ignoreCase = true) }
             ?.substring(BEARER_PREFIX.length)?.trim()

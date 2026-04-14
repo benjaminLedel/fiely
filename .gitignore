@@ -35,6 +35,7 @@ build/
 hs_err_pid*
 .gradle/
 !gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 
 # Node / React
 node_modules/
@@ -65,5 +66,4 @@ venv/
 
 # Docker / local data
 docker-data/
-minio-data/
 postgres-data/

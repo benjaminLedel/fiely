@@ -28,51 +28,75 @@ Fiely follows a **modular monolith** approach for the backend — structured eno
 └─────────┼───────────────────────────────┼───────────────┘
           │                               │
 ┌─────────▼──────────┐       ┌────────────▼───────────────┐
-│     MinIO          │       │       PostgreSQL            │
-│  (File Storage)    │       │   + pgvector extension      │
+│   File Storage     │       │       PostgreSQL            │
+│  (local filesystem)│       │   + pgvector extension      │
 └────────────────────┘       └────────────────────────────┘
 ```
 
 ---
 
-## Backend — Spring Boot
+## Backend — Spring Boot (Kotlin)
 
-The backend is a single Spring Boot application, organized into modules by domain.
+The backend is a Spring Boot application written in **Kotlin**, organized into modules by domain. It uses a [PF4J-based plugin architecture](plugin-architecture.md) to make AI providers, storage backends, authentication methods, and third-party apps pluggable.
 
 ### Module Structure
 
 ```
-fiely-backend/
-├── src/main/java/cloud/fiely/
-│   ├── auth/          # Authentication, JWT, OIDC
-│   ├── files/         # File management, chunked upload
-│   ├── sharing/       # Share links, guest access
-│   ├── users/         # User and team management
-│   ├── ai/            # AI provider abstraction + features
-│   ├── storage/       # MinIO abstraction layer
-│   └── common/        # Shared utilities, config
+fiely-backend/                          # Gradle multi-project build
+├── fiely-plugin-api/                   # Shared interfaces + DTOs (Kotlin, no Spring)
+│   └── src/main/kotlin/cloud/fiely/plugin/
+│       ├── AIProvider.kt
+│       ├── StorageProvider.kt
+│       ├── AuthProvider.kt
+│       ├── FileProcessor.kt
+│       ├── NotificationProvider.kt
+│       └── FielyApp.kt
+│
+├── fiely-core/                         # Spring Boot application
+│   └── src/main/kotlin/cloud/fiely/
+│       ├── files/         # File management, chunked upload
+│       ├── sharing/       # Share links, guest access
+│       ├── users/         # User and team management
+│       ├── plugin/        # PF4J Plugin Manager, event bridge
+│       └── common/        # Shared utilities, config
+│
+└── plugins/                            # First-party plugins (monorepo)
+    ├── fiely-auth-jwt/                 # JWT / database auth (default)
+    ├── fiely-auth-oidc/                # OIDC / Keycloak
+    ├── fiely-auth-ldap/                # LDAP / Active Directory
+    ├── fiely-storage-local/            # Local filesystem (default)
+    ├── fiely-ai-ollama/                # Ollama (local AI)
+    ├── fiely-ai-openai/                # OpenAI API
+    ├── fiely-ai-claude/                # Anthropic Claude API
+    ├── fiely-processor-text/           # Text extraction (PDF, DOCX)
+    └── fiely-notify-email/             # E-Mail notifications
 ```
 
 ### Key Design Decisions
 
+**Plugin Architecture (PF4J)**
+Core functionality (storage, auth, AI, file processing, notifications) is defined as extension point interfaces in `fiely-plugin-api`. Plugins are separate JARs loaded at runtime. See [Plugin Architecture](plugin-architecture.md) for details.
+
 **Chunked Upload via tus.io**
-All file uploads go through the [tus protocol](https://tus.io). This gives us resume support, progress tracking, and large file handling out of the box. The Spring Boot tus server implementation handles chunk assembly before writing to MinIO.
+All file uploads go through the [tus protocol](https://tus.io). This gives us resume support, progress tracking, and large file handling out of the box. The Spring Boot tus server implementation handles chunk assembly before writing to the file storage.
 
 **Storage Abstraction**
-The `StorageProvider` interface abstracts MinIO so that other S3-compatible backends (AWS S3, Hetzner Object Storage, local filesystem) can be swapped in via configuration — no code changes required.
+The `StorageProvider` interface abstracts file storage so that different backends (local filesystem, S3-compatible services) can be swapped in via configuration — no code changes required. The built-in implementation uses the local filesystem.
 
 **AI Provider Abstraction**
 The `AIProvider` interface allows pluggable AI backends:
 
-```java
-public interface AIProvider {
-    List<Float> embed(String text);
-    String complete(String prompt);
-    String chat(List<Message> messages);
+```kotlin
+interface AIProvider : ExtensionPoint {
+    val id: String
+    val displayName: String
+    fun embed(text: String): List<Float>
+    fun complete(prompt: String): String
+    fun chat(messages: List<Message>): Flow<String>
 }
 ```
 
-Implementations: `OllamaProvider`, `OpenAIProvider`, `ClaudeProvider`. Configured via `application.yml`.
+Implementations ship as plugins: `fiely-ai-ollama`, `fiely-ai-openai`, `fiely-ai-claude`. Configured via `application.yml`.
 
 ---
 
@@ -95,17 +119,17 @@ PostgreSQL is the primary database. The `pgvector` extension enables vector simi
 
 ---
 
-## File Storage — MinIO
+## File Storage
 
-Fiely uses MinIO as its object storage backend. MinIO is S3-compatible, self-hostable, and performant.
+Fiely stores uploaded files on the local filesystem. The storage location is configurable via `application.yml`.
 
-Files are stored with the following key structure:
+Files are stored with the following directory structure:
 
 ```
 {tenant_id}/{user_id}/{file_id}/{version}
 ```
 
-Metadata (filename, path, permissions) is stored in PostgreSQL. MinIO only holds raw bytes.
+Metadata (filename, path, permissions) is stored in PostgreSQL. The filesystem only holds raw bytes.
 
 ---
 
@@ -197,7 +221,7 @@ Fiely uses **JWT-based authentication** with optional OIDC/SSO integration.
 
 Fiely supports multiple organizations on a single instance. Tenants are isolated at the database and storage level:
 
-- Each tenant has its own storage prefix in MinIO
+- Each tenant has its own storage directory
 - Row-level security in PostgreSQL ensures cross-tenant data leakage is impossible
 - Tenant-specific AI provider configuration
 
@@ -212,7 +236,6 @@ services:
   fiely-api:      # Spring Boot backend
   fiely-web:      # React frontend (nginx)
   postgres:       # PostgreSQL + pgvector
-  minio:          # Object storage
   ollama:         # Local AI (optional)
 ```
 

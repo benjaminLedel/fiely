@@ -66,10 +66,10 @@ AI providers are **pluggable** — run locally with [Ollama](https://ollama.com)
 
 | Layer | Technology |
 |---|---|
-| Backend | Spring Boot (Java) |
+| Backend | Spring Boot (Kotlin) |
 | Frontend | React |
 | Mobile & Desktop | Flutter |
-| Storage | MinIO (S3-compatible) |
+| Storage | Local filesystem |
 | Database | PostgreSQL + pgvector |
 | Chunked Upload | tus.io |
 | AI (local) | Ollama |

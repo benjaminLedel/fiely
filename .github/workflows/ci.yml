@@ -36,6 +36,51 @@ jobs:
       - name: Build and test
         run: ./gradlew build
 
+      - name: Print failing test details
+        if: failure()
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          # `working-directory: fiely-backend` (job defaults) is in effect.
+          mapfile -t xml_files < <(printf '%s\n' **/build/test-results/test/TEST-*.xml)
+          echo "Found ${#xml_files[@]} TEST-*.xml files"
+
+          # Emit each <failure>/<error> as its own annotation. Annotations are
+          # exposed via the public check-runs/{id}/annotations API, so we can
+          # see the real failure cause without needing log-download auth.
+          python3 - <<'PY' "${xml_files[@]}"
+          import sys, xml.etree.ElementTree as ET
+          def esc(s):
+              # GitHub annotations need %0A / %0D for newlines, %25 for %
+              return (s or "").replace("%","%25").replace("\n","%0A").replace("\r","%0D")
+          any_failure = False
+          for path in sys.argv[1:]:
+              try:
+                  tree = ET.parse(path)
+              except Exception as e:
+                  print(f"::error::Could not parse {path}: {e}")
+                  continue
+              for tc in tree.getroot().iter("testcase"):
+                  cls = tc.get("classname", "?")
+                  name = tc.get("name", "?")
+                  for el in list(tc):
+                      if el.tag in ("failure", "error"):
+                          any_failure = True
+                          msg = el.get("message", "")
+                          typ = el.get("type", el.tag)
+                          body = (el.text or "")[:8000]
+                          full = f"{typ}: {msg}\n\n{body}"
+                          # Annotation
+                          print(f"::error title={cls} :: {name}::{esc(full)}")
+                          # Also human-readable in the log
+                          print(f"\n========== FAILED: {cls}.{name} ==========")
+                          print(f"{typ}: {msg}")
+                          print(body)
+                          print("=========================================\n")
+          if not any_failure:
+              print("No <failure> or <error> elements found in any TEST-*.xml")
+          PY
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4

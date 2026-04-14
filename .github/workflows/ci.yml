@@ -11,7 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/fiely
+  # Published to GHCR as ghcr.io/<owner>/<repo>, e.g. ghcr.io/benjaminledel/fiely
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   frontend:

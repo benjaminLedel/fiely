@@ -33,10 +33,15 @@ services:
     #   - "5432:5432"
 
   fiely:
+    # By default, pull the official multi-arch image published by CI from
+    # GHCR. If it can't be pulled (no network, new repo, offline dev) the
+    # local build context below is used as a fallback. To force a rebuild
+    # from your local checkout, run: docker compose build fiely
+    image: ${FIELY_IMAGE:-ghcr.io/benjaminledel/fiely:latest}
     build:
       context: .
       dockerfile: Dockerfile
-    image: fiely:local
+    pull_policy: missing
     restart: unless-stopped
     depends_on:
       postgres:

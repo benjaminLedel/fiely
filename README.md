@@ -127,23 +127,30 @@ cd fiely
 docker compose up
 ```
 
-That's it. The first run builds the Fiely image and starts:
+That's it. The compose file **pulls the official image from GHCR**
+(`ghcr.io/benjaminledel/fiely:latest`, published by CI) and starts:
 
 - **PostgreSQL 16 + pgvector** (for future semantic search) with a named
   volume so data persists across restarts
 - **Fiely** on http://localhost:8080
 
 The API is available under `/api`, the actuator under `/actuator`, and
-everything else falls through to the React SPA. To stop and clean up:
+everything else falls through to the React SPA.
+
+If the image can't be pulled (new repo, no network, offline dev) compose
+falls back to a local build from the root `Dockerfile` — no extra flags
+needed.
 
 ```bash
+docker compose pull            # refresh to the latest published image
+docker compose up --build      # force a build from your local checkout
 docker compose down            # stop, keep data
 docker compose down -v         # stop and delete the postgres volume
 ```
 
-Copy `.env.example` to `.env` to override the port or database credentials.
-Defaults are safe for local-only dev — **change the password before exposing
-Fiely to anything real**.
+Copy `.env.example` to `.env` to pin a specific image tag, override the
+port, or change database credentials. Defaults are safe for local-only dev
+— **change the password before exposing Fiely to anything real**.
 
 ### Build the image manually
 

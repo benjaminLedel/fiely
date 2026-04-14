@@ -68,7 +68,18 @@ class FielyPluginManager(
         }
         val runner = PluginMigrationRunner(dataSource)
         migrations.forEach { ext ->
-            val classLoader = classLoaderFor(ext) ?: ext.javaClass.classLoader
+            val classLoader = classLoaderFor(ext)
+            if (classLoader == null) {
+                // PF4J's extension finder also scans the system classloader,
+                // which would let migrations from non-plugin sources execute
+                // unintentionally (e.g. when a plugin module is on the test
+                // classpath). Plugin migrations must come from a real plugin.
+                log.warn(
+                    "Skipping PluginMigrations extension '{}' — not owned by any loaded plugin",
+                    ext.pluginId,
+                )
+                return@forEach
+            }
             runner.migrate(ext, classLoader)
         }
     }

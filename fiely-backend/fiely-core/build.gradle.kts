@@ -21,6 +21,11 @@ dependencies {
     }
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    // OpenAPI 3 / Swagger UI — exposes /v3/api-docs and /swagger-ui.html.
+    // The webmvc-ui starter pulls in swagger-ui webjar and the core springdoc
+    // library, so both the raw spec and the interactive UI are available
+    // out of the box.
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
 
     runtimeOnly("org.postgresql:postgresql")
 

@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm")
     kotlin("plugin.spring")
+    kotlin("plugin.jpa")
     id("org.springframework.boot")
     id("io.spring.dependency-management")
 }
@@ -45,15 +46,21 @@ dependencies {
 
 // --- Test plugin packaging ---------------------------------------------------
 //
-// Build the fiely-auth-jwt plugin as a real JAR and drop it into
+// Build the first-party plugins as real JARs and drop them into
 // `build/test-plugins/` before tests run, then expose that path to the test
-// JVM via a system property. The end-to-end integration test points
-// `fiely.plugins.dir` at this directory so PF4J actually discovers, resolves
-// and starts the plugin — no stubs involved.
+// JVM via a system property. Integration tests point `fiely.plugins.dir` at
+// this directory so PF4J actually discovers, resolves and starts the plugins
+// — no stubs involved.
 val copyTestPlugins = tasks.register<Copy>("copyTestPlugins") {
-    val pluginJar = project(":plugins:fiely-auth-jwt").tasks.named("jar")
-    dependsOn(pluginJar)
-    from(pluginJar)
+    val pluginProjects = listOf(
+        ":plugins:fiely-auth-jwt",
+        ":plugins:fiely-storage-local",
+    )
+    pluginProjects.forEach { path ->
+        val jar = project(path).tasks.named("jar")
+        dependsOn(jar)
+        from(jar)
+    }
     into(layout.buildDirectory.dir("test-plugins"))
 }
 

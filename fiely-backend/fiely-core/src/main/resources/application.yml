@@ -13,6 +13,13 @@ spring:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      # Transport-layer ceiling — per-tenant limits are enforced in FileService
+      # from the tenants.max_upload_bytes column. Raise this if you intend to
+      # set any tenant above 1 GiB.
+      max-file-size: ${FIELY_MAX_UPLOAD_SIZE:1GB}
+      max-request-size: ${FIELY_MAX_UPLOAD_SIZE:1GB}
 
 fiely:
   plugins:
@@ -22,6 +29,13 @@ fiely:
       issuer: ${FIELY_JWT_ISSUER:fiely}
       access-token-ttl: ${FIELY_JWT_ACCESS_TTL:3600}
       refresh-token-ttl: ${FIELY_JWT_REFRESH_TTL:604800}
+    fiely-storage-local:
+      root: ${FIELY_STORAGE_LOCAL_ROOT:./data/blobs}
+  storage:
+    # Id of the StorageProvider plugin to write new uploads through. Existing
+    # rows keep their original storage_id so switching providers doesn't break
+    # downloads of previously-uploaded files.
+    provider: ${FIELY_STORAGE_PROVIDER:fiely-storage-local}
 
 server:
   port: 8080

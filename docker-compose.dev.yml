@@ -1,0 +1,80 @@
+# Fiely — development overlay (single port).
+#
+# Run alongside the base compose with:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Everything lives behind Spring Boot on :8080. There is no second port:
+#
+# - `fiely-frontend-watch` runs `vite build --watch`, writing dist/ to a
+#   shared named volume. It's bind-mounted against ./fiely-frontend so
+#   source edits trigger incremental rebuilds in sub-second time.
+# - `fiely` mounts the same volume at /app/frontend-dist and is told to
+#   serve from there first via spring.web.resources.static-locations.
+#   Spring streams the newest bytes — no backend restart required.
+# - Edits → Vite rebuilds → refresh the browser → done.
+#
+# Caveat: this is a full-page-reload workflow, not React Fast Refresh.
+# If you want HMR with preserved state, run Vite on the host instead
+# (`cd fiely-frontend && npm run dev`) and `docker compose up postgres
+# fiely`; Vite's proxy (see vite.config.ts) forwards /api to :8080.
+
+services:
+  fiely:
+    image: fiely:dev
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      # Serve the watch output first, fall back to what was baked into
+      # the JAR. file: locations need a trailing slash for Spring's
+      # resource resolver to treat them as a directory root.
+      SPRING_WEB_RESOURCES_STATIC_LOCATIONS: file:/app/frontend-dist/,classpath:/static/
+    volumes:
+      - fiely-frontend-dist:/app/frontend-dist:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fiely-frontend-watch:
+        condition: service_healthy
+
+  fiely-frontend-watch:
+    image: node:22-alpine
+    working_dir: /workspace
+    # On first start: install, then incremental watch build into the
+    # shared volume. The watch process blocks so the container stays up.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        if [ ! -d node_modules ] || [ ! -f node_modules/.installed ]; then
+          npm ci --no-audit --no-fund
+          touch node_modules/.installed
+        fi
+        exec npx vite build --watch --outDir /dist-out --emptyOutDir
+    environment:
+      # Linux bind-mount watchers need polling to see host file changes
+      # reliably across Docker Desktop and most kernels.
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./fiely-frontend:/workspace
+      # node_modules inside a named volume so macOS/Windows native deps
+      # differences don't leak in from the host.
+      - fiely-frontend-node-modules:/workspace/node_modules
+      - fiely-frontend-dist:/dist-out
+    # Healthy once the first build has produced index.html — the fiely
+    # container waits for this so users never hit a 404 on first load.
+    healthcheck:
+      test: ["CMD", "test", "-f", "/dist-out/index.html"]
+      interval: 3s
+      timeout: 2s
+      retries: 60
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  fiely-frontend-node-modules:
+  fiely-frontend-dist:

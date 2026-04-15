@@ -113,14 +113,93 @@ AI providers are **pluggable** — run locally with [Ollama](https://ollama.com)
 
 ## Self-Hosting
 
-Fiely is designed to be self-hosted. A single `docker-compose.yml` should get you running in minutes.
+Fiely ships as a **single container** — backend + frontend baked into one
+image. The root `Dockerfile` is a 3-stage build (Node for the frontend,
+Gradle for the backend, slim JRE for the runtime) that embeds the built
+React assets into Spring Boot's `static/` resources. An SPA fallback
+ensures deep links work on refresh.
+
+### Quick start (Docker Compose)
 
 ```bash
-# Coming soon
-git clone https://github.com/yourusername/fiely
+git clone https://github.com/benjaminledel/fiely
 cd fiely
 docker compose up
 ```
+
+That's it. The compose file **pulls the official image from GHCR**
+(`ghcr.io/benjaminledel/fiely:latest`, published by CI) and starts:
+
+- **PostgreSQL 16 + pgvector** (for future semantic search) with a named
+  volume so data persists across restarts
+- **Fiely** on http://localhost:8080
+
+The API is available under `/api`, the actuator under `/actuator`, and
+everything else falls through to the React SPA.
+
+If the image can't be pulled (new repo, no network, offline dev) compose
+falls back to a local build from the root `Dockerfile` — no extra flags
+needed.
+
+```bash
+docker compose pull            # refresh to the latest published image
+docker compose up --build      # force a build from your local checkout
+docker compose down            # stop, keep data
+docker compose down -v         # stop and delete the postgres volume
+```
+
+Copy `.env.example` to `.env` to pin a specific image tag, override the
+port, or change database credentials. Defaults are safe for local-only dev
+— **change the password before exposing Fiely to anything real**.
+
+### Build the image manually
+
+If you don't want compose:
+
+```bash
+docker build -t fiely .
+docker run --rm -p 8080:8080 \
+  -e FIELY_DB_URL=jdbc:postgresql://host.docker.internal:5432/fiely \
+  -e FIELY_DB_USER=fiely \
+  -e FIELY_DB_PASSWORD=fiely \
+  fiely
+```
+
+### Development (single port, live frontend rebuilds)
+
+A dev overlay gives you a single exposed port (**8080**) with the
+frontend rebuilding on every source save. Spring Boot serves both the
+API and the freshly-built frontend bytes — no second dev server, no
+proxy, no CORS.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+| Service | Role |
+|---|---|
+| `fiely` | http://localhost:8080 — API + SPA, reads frontend from a shared volume |
+| `fiely-frontend-watch` | `vite build --watch`, writes `dist/` to the shared volume |
+| `postgres` | PostgreSQL 16 + pgvector |
+
+How it works: Vite runs in incremental watch mode and writes into a
+named volume. The backend is configured with
+`spring.web.resources.static-locations=file:/app/frontend-dist/,classpath:/static/`
+so it serves the live dist first and falls back to the version baked
+into the image. A healthcheck on the watcher blocks the backend until
+the first build is done, so you never see a 404 on initial load.
+
+Workflow: edit `fiely-frontend/src/…` → Vite rebuilds in under a
+second → refresh the browser.
+
+Backend code changes still need `docker compose build fiely` +
+`up -d` to pick up the new JAR.
+
+> **Want React Fast Refresh with preserved state?** That's a full Vite
+> dev server, which can't share a port with Spring. Run
+> `docker compose up postgres fiely` for DB+backend, then on the host
+> `cd fiely-frontend && npm run dev` — Vite's proxy (see
+> `vite.config.ts`) forwards `/api` to :8080 and you open :5173.
 
 ---
 

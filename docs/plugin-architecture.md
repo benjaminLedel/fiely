@@ -624,7 +624,16 @@ Users enable opt-in plugins by adding them to `fiely.plugins.enabled` in `applic
 ### Phase 4 — Third-Party Apps
 - [ ] Implement `FielyApp` extension point with `AppContext`
 - [ ] Frontend plugin mechanism (webapp/ assets, manifest.json)
-- [ ] Permission model and admin approval flow
+  - [ ] Publish `@fiely/host` v1 (host API) and `@fiely/ui` (component library)
+  - [ ] Import-map-based loader with React/host externalized
+  - [ ] In-process plugin mount point with `.fiely-plugin-root` CSS scoping
+  - [ ] Aggregate manifest endpoint (`GET /api/plugins/manifests`)
+  - [ ] Content-hashed, long-cacheable bundle serving (`/apps/{id}/{version}/...`)
+  - [ ] Strict CSP: `script-src` pinned to core origin, `connect-src` pinned to Fiely API
+  - [ ] `hostApiVersion` compatibility gating + admin "incompatible" UI
+  - [ ] Admin install flow with explicit permission approval
+  - [ ] `create-fiely-plugin` scaffold + `@fiely/plugin-dev` Vite plugin with HMR
+- [ ] Permission model and admin approval flow (backend + frontend enforcement)
 - [ ] Plugin hot-reloading (load/unload at runtime)
 - [ ] Publish `fiely-plugin-api` to Maven Central / GitHub Packages
 - [ ] Plugin marketplace / registry (future)
@@ -636,41 +645,294 @@ Users enable opt-in plugins by adding them to `fiely.plugins.enabled` in `applic
 - **Kotlin:** The entire backend will be written in Kotlin. This applies to `fiely-plugin-api`, `fiely-core`, and all first-party plugins. Spring Boot has excellent Kotlin support (null safety, coroutines, DSLs). The existing Java sources will be migrated to Kotlin.
 - **Monorepo:** First-party plugins live in the same repository under `fiely-backend/plugins/`. This means a single CI build, consistent versioning, and easy refactoring across core and plugins. Third-party plugins use their own repositories and depend on `fiely-plugin-api` via Maven Central / GitHub Packages.
 - **Multi-module Gradle:** `fiely-backend` becomes a Gradle multi-project build with `fiely-plugin-api`, `fiely-core`, and each plugin as a submodule. Shared configuration (Kotlin version, dependency versions) is managed in the root `build.gradle.kts`.
-- **Plugin UI:** Third-party apps can contribute frontend components. Each plugin JAR may include a `webapp/` directory with static assets (JS bundles, CSS). The core serves these under `/apps/{plugin-id}/` and the React frontend discovers them via a plugin manifest API (`GET /api/plugins/{id}/manifest`). This enables plugins to add pages, settings panels, or file-action buttons in the UI.
+- **Plugin UI:** Third-party apps can contribute frontend components. Each plugin JAR may include a `webapp/` directory with static assets (JS bundles, CSS). The core serves these under `/apps/{plugin-id}/{version}/` and the React frontend discovers them via an aggregate manifest API (`GET /api/plugins/manifests`). Plugin bundles are loaded as native ESM via browser import maps that pin `react`, `react-dom`, and `@fiely/host` to the core's versions — no "two Reacts" problem, no Module Federation runtime. **All plugins run in-process**: the plugin's exported component is mounted directly in the host React tree with a `FielyHost` instance passed as a prop. Isolation comes from admin review before install, backend enforcement of the declared `AppPermission` set on every API call, and CSS scoping inside a per-plugin mount wrapper — not from a runtime sandbox. See the full contract in [Frontend Plugin Mechanism](#frontend-plugin-mechanism) below.
 
 ### Frontend Plugin Mechanism
+
+Goals for the frontend plugin system:
+
+- **Zero build-time coupling** — adding a plugin never rebuilds the core frontend.
+- **Versioned contract** — plugins compile against a stable host API; incompatible plugins are rejected up-front, not at runtime.
+- **Unified in-process model** — every plugin runs directly in the host React tree. Trust is established at install time and enforced at the backend API layer, not by a runtime sandbox. This mirrors VS Code extensions, IntelliJ plugins, and Rails engines, and gives every plugin shared state (router, theme, query cache) plus a trivial DX.
+- **Good DX** — a plugin author can scaffold, run with HMR, and ship without knowing anything about the core's build system.
+
+#### Bundle layout
+
+A plugin JAR may contain an optional `webapp/` directory:
 
 ```
 plugin-jar/
 ├── plugin.properties
-├── classes/                  # Backend code (Kotlin)
-└── webapp/                   # Frontend assets (optional)
-    ├── manifest.json         # Declares UI entry points
-    ├── index.js              # Bundled React component(s)
-    └── style.css
+├── classes/                          # Backend code (Kotlin)
+└── webapp/                           # Frontend assets (optional)
+    ├── manifest.json                 # Declares UI entry points
+    ├── assets/
+    │   ├── index.[hash].js           # ESM bundle, React/host externalized
+    │   ├── PdfAnalyzer.[hash].js     # Optional additional entry bundles
+    │   └── style.[hash].css          # Optional, scoped under .fiely-plugin-root
+    └── icons/                        # Optional SVG icons referenced from manifest
 ```
 
+The backend serves `webapp/` under a content-hashed, long-cacheable URL:
+
+```
+GET /apps/{plugin-id}/{version}/manifest.json
+GET /apps/{plugin-id}/{version}/assets/{file}
+```
+
+`{version}` is taken from `plugin.properties` so a plugin update invalidates caches automatically. Bundles are served with `Cache-Control: public, max-age=31536000, immutable`; the manifest is served with `no-cache` so new versions are picked up on next load.
+
+#### Manifest schema (`webapp/manifest.json`)
+
 ```json
-// webapp/manifest.json
 {
   "id": "my-app",
+  "name": "My App",
+  "version": "1.2.0",
+  "hostApiVersion": "1",
+  "trust": "third-party",
+  "icon": "icons/app.svg",
   "entryPoints": [
     {
       "type": "page",
+      "id": "dashboard",
       "path": "/apps/my-app",
       "label": "My App",
-      "icon": "puzzle",
-      "bundle": "index.js"
+      "icon": "icons/app.svg",
+      "bundle": "assets/index.abcd1234.js",
+      "export": "default",
+      "navLocation": "sidebar"
     },
     {
       "type": "file-action",
+      "id": "analyze-pdf",
       "mimeTypes": ["application/pdf"],
       "label": "Analyze PDF",
-      "bundle": "index.js",
-      "component": "PdfAnalyzer"
+      "icon": "icons/analyze.svg",
+      "bundle": "assets/PdfAnalyzer.abcd1234.js",
+      "export": "PdfAnalyzer"
+    },
+    {
+      "type": "settings-panel",
+      "id": "settings",
+      "label": "My App Settings",
+      "scope": "admin",
+      "bundle": "assets/index.abcd1234.js",
+      "export": "Settings"
     }
   ]
 }
 ```
 
-The React frontend loads plugin UI components dynamically via [Module Federation](https://webpack.js.org/concepts/module-federation/) or dynamic `import()`. Plugin bundles are served as static assets by the backend — no build-time coupling between core frontend and plugin frontend.
+Required top-level fields: `id`, `version`, `hostApiVersion`, `entryPoints`. `hostApiVersion` must match a version the running core advertises; otherwise the plugin is not loaded and surfaces as "incompatible" in the admin UI.
+
+#### Loading model — import maps + native ESM
+
+The core emits an **import map** at page load that pins shared singletons:
+
+```html
+<script type="importmap">
+{
+  "imports": {
+    "react":        "/vendor/react@18.3.1/index.js",
+    "react-dom":    "/vendor/react-dom@18.3.1/index.js",
+    "@fiely/host":  "/vendor/fiely-host@1/index.js"
+  }
+}
+</script>
+```
+
+Plugin bundles are built as **ESM with these packages externalized**. The browser resolves the imports to the singletons served by the core — eliminating the "two Reacts" problem and keeping plugin bundles small (a typical plugin ships in ~5–20 KB gzipped).
+
+Plugins are loaded via native dynamic `import()`:
+
+```ts
+const module = await import(`/apps/${id}/${version}/${entryPoint.bundle}`);
+const Component = module[entryPoint.export ?? 'default'];
+```
+
+No Webpack, no Module Federation, no Vite runtime required on the plugin side. Plugin authors ship a standard ESM bundle.
+
+> **Rejected alternative — Module Federation.** Considered and rejected for Phase 4: it requires plugin authors to adopt Webpack/Rspack config, fights with Vite's native ESM, and duplicates what browser-native import maps already solve cleanly.
+
+#### Provenance tiers
+
+| Tier | Who | React version | How it's established |
+|---|---|---|---|
+| `core` | Shipped in the core bundle | pinned | compiled in |
+| `first-party` | Plugins under `fiely-backend/plugins/` | import map singleton | built + signed by the Fiely team |
+| `third-party` | Community / marketplace plugins | import map singleton | admin review + explicit permission approval |
+
+All three tiers run **in-process**. The `trust` field in the manifest is a *provenance* label — it drives the install banner, the badge on nav entries, and which permissions may be auto-granted. It is set by the core based on where the JAR came from, never by the plugin itself.
+
+Isolation does not come from a runtime sandbox; it comes from:
+
+- **Admin review.** Third-party JARs go through a review + explicit permission-approval step before they can be enabled.
+- **Backend permission enforcement.** Every `host.files.*` call ultimately hits a Fiely API endpoint that checks the plugin's `AppPermission` set. A `WRITE_FILES`-less plugin that calls `host.files.upload` gets a `PermissionError` from the backend — the frontend cannot bypass it.
+- **Bundle provenance.** The core's import map is the only way plugin code gets `react`, `react-dom`, and `@fiely/host`. Bundles are loaded by URL from `/apps/{id}/{version}/...`, which the backend serves; plugins cannot `import()` arbitrary remote modules because CSP blocks it.
+- **CSS scoping.** Plugins must render inside the host's `.fiely-plugin-root` wrapper and must not attach global stylesheets. The loader rejects bundles that inject `<style>` tags at the document level.
+
+This approach mirrors how VS Code extensions, IntelliJ plugins, and Rails engines operate: trust is established at install time and enforced at the API layer, not by a per-plugin process boundary.
+
+#### Host API (`@fiely/host`)
+
+Plugins import from `@fiely/host`, which is pinned by the core's import map so every plugin shares the exact same types and helpers. The package ships as types + two small loader helpers; there is no RPC layer.
+
+```ts
+// @fiely/host — v1
+export interface FielyHost {
+  // Identity
+  readonly user: UserInfo;
+  readonly theme: ThemeTokens;        // tokens matching fiely-frontend tailwind.config
+  readonly hostApiVersion: '1';
+
+  // Data access (already authenticated, respects backend permissions)
+  fetch(input: RequestInfo, init?: RequestInit): Promise<Response>;
+
+  // Files — typed wrappers around the file service
+  files: {
+    get(id: string): Promise<FileMetadata>;
+    download(id: string): Promise<Blob>;
+    list(folderId: string, opts?: ListOptions): Promise<FileMetadata[]>;
+    // write operations only resolve if the plugin has WRITE_FILES permission
+    upload(folderId: string, file: Blob, name: string): Promise<FileMetadata>;
+  };
+
+  // UI affordances
+  ui: {
+    toast(msg: string, kind?: 'info' | 'success' | 'warning' | 'error'): void;
+    confirm(opts: ConfirmOptions): Promise<boolean>;
+    navigate(path: string): void;
+    openFile(id: string): void;
+  };
+
+  // Events — subset of backend events, scoped to the plugin's permissions
+  on<E extends HostEvent>(type: E['type'], handler: (e: E) => void): () => void;
+
+  // Configuration — the plugin's own config from application.yml
+  config: Readonly<Record<string, string>>;
+
+  // i18n
+  t(key: string, params?: Record<string, string>): string;
+}
+
+export type HostEvent =
+  | { type: 'file.uploaded'; file: FileMetadata }
+  | { type: 'file.deleted'; fileId: string }
+  | { type: 'navigation'; path: string };
+```
+
+Rules:
+
+- Versioned. Breaking changes bump `hostApiVersion`. The core may support multiple versions in parallel during a deprecation window.
+- Minimal by design. Anything a plugin needs that isn't here should be requested via an API proposal, not by reaching into globals.
+- `window.Fiely` does **not** exist. Plugins must import from `@fiely/host`.
+
+#### Entry point types
+
+Each entry point declares the shape of the component it mounts. All props include `host: FielyHost`.
+
+```ts
+// type: "page"
+type PageProps = {
+  host: FielyHost;
+  params: Record<string, string>;          // route params under the plugin's base path
+};
+
+// type: "file-action"
+type FileActionProps = {
+  host: FielyHost;
+  file: FileMetadata;
+  onClose(): void;
+  onReplaced?(newFile: FileMetadata): void; // optional result channel
+};
+
+// type: "settings-panel"
+type SettingsPanelProps = {
+  host: FielyHost;
+  scope: 'user' | 'admin';
+};
+
+// type: "sidebar-widget" (future)
+type SidebarWidgetProps = { host: FielyHost };
+```
+
+Entry points are statically declared in the manifest so the core can render a placeholder (icon, label, skeleton) before the bundle has loaded.
+
+#### Routing
+
+The core owns React Router. A `page` entry point is mounted under its declared `path` with a `<Outlet>` slot, so a plugin can bring its own nested `<Routes>` if it needs sub-pages:
+
+```tsx
+// Core mounts approximately:
+<Route path={entry.path + '/*'} element={<PluginHost entry={entry} />} />
+```
+
+Plugins must keep their routes under the declared base path. Cross-plugin navigation goes through `host.ui.navigate(path)` so the core can intercept (analytics, guards, permission checks).
+
+#### Styling & the design system
+
+- In-process plugins **must** use the shared `@fiely/ui` component library (buttons, inputs, modals, tables) so they inherit Tailwind tokens, dark mode, and accessibility defaults. Shipping raw `<style>` tags or a global CSS reset is forbidden and rejected at manifest-load time by a CSS-scoping check.
+- Iframe plugins can ship whatever CSS they want — they're isolated — but `@fiely/ui` is still offered so they look native by default.
+- Theme tokens (colors, radii, spacing) are exposed via `host.theme` so plugins that do write custom CSS can match the host.
+
+`@fiely/ui` is versioned alongside `@fiely/host` and published to npm.
+
+#### Manifest aggregation endpoint
+
+The core exposes both a per-plugin and an aggregate endpoint:
+
+```
+GET /api/plugins/manifests           → PluginManifest[]   (one round-trip at boot)
+GET /api/plugins/{id}/manifest       → PluginManifest     (for admin pages / deep links)
+```
+
+The aggregate response is ETagged so the frontend can revalidate cheaply on subsequent loads.
+
+#### Versioning & compatibility
+
+- `hostApiVersion` in the manifest is a **major version string** (`"1"`, `"2"`). Minor additions don't bump it.
+- The core advertises the versions it supports via `GET /api/plugins/host-api/versions`.
+- Incompatible plugins are still visible in the admin UI as "requires host API v2" — they just don't mount.
+- Plugins may declare a minimum Fiely version (`"minFielyVersion": "0.5.0"`) for finer-grained gating.
+
+#### Security model (frontend)
+
+Every plugin runs in the same document as the core. Security is layered, not sandbox-based:
+
+- **Source of truth: the backend.** `host.files.*`, `host.fetch`, and anything else that touches data calls Fiely API endpoints that are guarded by the plugin's `AppPermission` set. A plugin can call `host.files.upload` all it wants — the backend still rejects it without `WRITE_FILES`, and the host surfaces the rejection as a typed `PermissionError`.
+- **Admin review before install.** Third-party JARs are inspected and their declared permissions approved explicitly. An install banner makes the permission set obvious ("This app wants to read all your files").
+- **Controlled code loading.** Bundles are only loadable from `/apps/{id}/{version}/...` on the core origin. Page-level CSP pins `script-src` to the core origin and `connect-src` to the Fiely API — a plugin cannot fetch or `import()` arbitrary third-party code at runtime.
+- **Shared-singleton enforcement.** The core's import map is the only resolver for `react`, `react-dom`, and `@fiely/host`. Bundles that try to ship their own copies fail to load.
+- **CSS scoping.** Plugins mount inside `.fiely-plugin-root`; the loader rejects bundles that attach stylesheets outside it. Plugins are strongly encouraged to use `@fiely/ui`.
+- **No eval of plugin-supplied strings.** The host never evaluates plugin-provided templates or HTML strings; React reconciliation is the only path from plugin code to the DOM.
+
+This is a weaker boundary than an iframe sandbox and it is a deliberate trade-off: we get shared state (router, query cache, theme context), design-system consistency, and a trivial DX, at the cost of treating the plugin install step as the real trust boundary. For workloads that truly require code-level isolation, Fiely's answer is "keep that code on the backend and call it over `host.fetch`".
+
+#### Developer experience
+
+A plugin author workflow that Just Works is non-negotiable:
+
+```bash
+npx create-fiely-plugin my-app
+cd my-app
+npm run dev                    # HMR against a running Fiely instance
+npm run build                  # produces webapp/ with hashed bundles
+./gradlew :plugins:my-app:jar  # bundles backend + webapp/ into a JAR
+```
+
+- `create-fiely-plugin` scaffolds a Vite project with `@fiely/host` and `@fiely/ui` preinstalled, externals configured, and a working `file-action` example.
+- `@fiely/plugin-dev` provides a Vite plugin that:
+  - injects the host API import map in dev,
+  - proxies `/api` to a developer's local Fiely backend,
+  - hot-reloads the plugin bundle in the running UI.
+- Published templates for each entry-point type (page, file-action, settings-panel).
+
+#### Open questions
+
+Items intentionally deferred past Phase 4:
+
+- **Cross-plugin communication.** If Plugin A wants to extend Plugin B's page — do we allow it? Probably yes via a pub/sub channel, but out of scope for v1.
+- **Shared query cache.** Can plugins share a TanStack Query cache with the host, or should we expose a plugin-scoped cache to avoid cross-plugin invalidation races? Leaning: expose it via `@fiely/host` rather than letting plugins reach for `useQueryClient`.
+- **Offline / Service Worker.** Plugin assets are cacheable; whether plugins can register their own service workers is undecided.
+- **Plugin marketplace UX.** Discovery, signing, reviews, and a trust-chain model are a separate design doc.

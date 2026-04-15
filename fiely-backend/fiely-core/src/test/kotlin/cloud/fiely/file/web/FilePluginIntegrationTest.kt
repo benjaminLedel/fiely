@@ -21,6 +21,9 @@ import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.multipart
 import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.testcontainers.DockerClientFactory
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
@@ -123,13 +126,13 @@ class FilePluginIntegrationTest {
             jsonPath("$[0].id") { value(fileId) }
         }
 
-        // Download
-        mockMvc.get("/api/files/$fileId/content") {
+        // Download (StreamingResponseBody needs an asyncDispatch)
+        val asyncResult = mockMvc.get("/api/files/$fileId/content") {
             header("Authorization", "Bearer $token")
-        }.andExpect {
-            status { isOk() }
-            content { bytes(payload) }
-        }
+        }.andExpect { status { isOk() } }.andReturn()
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk)
+            .andExpect(content().bytes(payload))
 
         // Delete
         mockMvc.delete("/api/files/$fileId") {

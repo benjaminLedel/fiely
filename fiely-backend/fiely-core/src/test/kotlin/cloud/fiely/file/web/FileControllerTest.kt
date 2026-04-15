@@ -29,6 +29,10 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.multipart
 import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.io.InputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -105,11 +109,14 @@ class FileControllerTest {
             jsonPath("$[0].name") { value("hello.txt") }
         }
 
-        mockMvc.get("/api/files/$id/content").andExpect {
+        // StreamingResponseBody is async — need an asyncDispatch to drain it.
+        val asyncResult = mockMvc.get("/api/files/$id/content").andExpect {
             status { isOk() }
-            content { bytes(payload) }
             header { string("Content-Disposition", "attachment; filename*=UTF-8''hello.txt") }
-        }
+        }.andReturn()
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk)
+            .andExpect(content().bytes(payload))
 
         mockMvc.delete("/api/files/$id").andExpect { status { isNoContent() } }
         mockMvc.get("/api/files").andExpect {

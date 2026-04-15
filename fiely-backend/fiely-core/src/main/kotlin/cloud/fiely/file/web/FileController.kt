@@ -2,12 +2,7 @@ package cloud.fiely.file.web
 
 import cloud.fiely.auth.web.CurrentUserResolver
 import cloud.fiely.auth.web.ErrorResponse
-import cloud.fiely.file.service.BadRequestException
-import cloud.fiely.file.service.ConflictException
 import cloud.fiely.file.service.FileService
-import cloud.fiely.file.service.NotFoundException
-import cloud.fiely.file.service.PayloadTooLargeException
-import cloud.fiely.file.service.ServiceUnavailableException
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.responses.ApiResponse
@@ -19,7 +14,6 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
-import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -254,24 +248,4 @@ class FileController(
 
     private fun unauthorized(): ResponseEntity<Any> =
         ResponseEntity.status(401).body(ErrorResponse("Missing or invalid bearer token"))
-
-    @ExceptionHandler(NotFoundException::class)
-    fun onNotFound(e: NotFoundException): ResponseEntity<ErrorResponse> =
-        ResponseEntity.status(404).body(ErrorResponse(e.message ?: "Not found"))
-
-    @ExceptionHandler(BadRequestException::class)
-    fun onBadRequest(e: BadRequestException): ResponseEntity<ErrorResponse> =
-        ResponseEntity.badRequest().body(ErrorResponse(e.message ?: "Bad request"))
-
-    @ExceptionHandler(ConflictException::class)
-    fun onConflict(e: ConflictException): ResponseEntity<ErrorResponse> =
-        ResponseEntity.status(409).body(ErrorResponse(e.message ?: "Conflict"))
-
-    @ExceptionHandler(PayloadTooLargeException::class)
-    fun onTooLarge(e: PayloadTooLargeException): ResponseEntity<ErrorResponse> =
-        ResponseEntity.status(413).body(ErrorResponse(e.message ?: "Payload too large"))
-
-    @ExceptionHandler(ServiceUnavailableException::class)
-    fun onUnavailable(e: ServiceUnavailableException): ResponseEntity<ErrorResponse> =
-        ResponseEntity.status(503).body(ErrorResponse(e.message ?: "Service unavailable"))
 }

@@ -1,6 +1,7 @@
 package cloud.fiely.file.service
 
 import cloud.fiely.file.domain.FileEntity
+import cloud.fiely.file.domain.FileMetadataRepository
 import cloud.fiely.file.domain.FileRepository
 import cloud.fiely.plugin.FileReference
 import cloud.fiely.plugin.StoragePath
@@ -27,6 +28,7 @@ import java.util.UUID
 @Service
 class FileService(
     private val files: FileRepository,
+    private val metadata: FileMetadataRepository,
     private val tenants: TenantRepository,
     private val storageProviders: ObjectProvider<StorageProvider>,
     @Value("\${fiely.storage.provider:fiely-storage-local}")
@@ -157,14 +159,21 @@ class FileService(
 
     @Transactional
     fun delete(ownerId: UUID, id: UUID) {
-        val file = get(ownerId, id)
-        // Walk the tree first so we can ask the StorageProvider to drop each
-        // blob. DB cascade handles the row deletes once we return.
-        val blobsToDelete = mutableListOf<FileEntity>()
-        collectBlobs(file, ownerId, blobsToDelete)
+        val root = get(ownerId, id)
+
+        // Walk the subtree explicitly. We don't rely on DB ON DELETE CASCADE
+        // because the JPA entities don't declare @ManyToOne associations —
+        // so Hibernate's auto-generated DDL (used in H2-backed tests) carries
+        // no cascading FKs, even though the Flyway-managed Postgres schema
+        // does. Walking is also cheaper on large subtrees than a recursive
+        // CTE via cascade, and gives us a chance to ask every StorageProvider
+        // to drop its blobs before the rows vanish.
+        val subtree = mutableListOf<FileEntity>()
+        collectAll(root, ownerId, subtree)
+        val blobs = subtree.filter { !it.isFolder }
 
         val providerCache = HashMap<String, StorageProvider?>()
-        for (blob in blobsToDelete) {
+        for (blob in blobs) {
             val sid = blob.storageId ?: continue
             val spath = blob.storagePath ?: continue
             val provider = providerCache.getOrPut(sid) { providerFor(sid) }
@@ -176,7 +185,10 @@ class FileService(
                 .onFailure { log.warn("Failed to delete blob for file {}: {}", blob.id, it.message) }
         }
 
-        files.delete(file)
+        // Metadata FK points at files(id), so clear it before the file rows.
+        metadata.deleteAllByIdFileIdIn(subtree.map { it.id })
+        // Delete children before parents to satisfy the self-FK.
+        files.deleteAll(subtree.asReversed())
     }
 
     // --- Internals ----------------------------------------------------------
@@ -240,13 +252,17 @@ class FileService(
         return false
     }
 
-    private fun collectBlobs(node: FileEntity, ownerId: UUID, acc: MutableList<FileEntity>) {
-        if (!node.isFolder) {
-            acc += node
-            return
-        }
-        for (child in files.findAllByOwnerIdAndParentId(ownerId, node.id)) {
-            collectBlobs(child, ownerId, acc)
+    /**
+     * Depth-first pre-order walk: parent appears before its children in [acc].
+     * Callers doing a recursive delete should reverse the list so children go
+     * first and the self-FK is satisfied.
+     */
+    private fun collectAll(node: FileEntity, ownerId: UUID, acc: MutableList<FileEntity>) {
+        acc += node
+        if (node.isFolder) {
+            for (child in files.findAllByOwnerIdAndParentId(ownerId, node.id)) {
+                collectAll(child, ownerId, acc)
+            }
         }
     }
 }

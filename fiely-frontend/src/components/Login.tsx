@@ -24,13 +24,26 @@ export default function Login() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          username: form.username,
+          password: form.password,
+        }),
       });
+      const body = await res.json().catch(() => null);
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.message ?? `Login failed (${res.status})`);
+        throw new Error(
+          body?.error ?? body?.message ?? `Login failed (${res.status})`
+        );
       }
-      // Backend will set the session cookie and tell us where to go.
+      // Store the access token so the authenticated shell can pick it up.
+      // A real session cookie will replace this once the backend sets one.
+      if (body?.token?.accessToken) {
+        const store = form.remember ? window.localStorage : window.sessionStorage;
+        store.setItem('fiely.accessToken', body.token.accessToken);
+        if (body.token.refreshToken) {
+          store.setItem('fiely.refreshToken', body.token.refreshToken);
+        }
+      }
       window.location.href = '/';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');

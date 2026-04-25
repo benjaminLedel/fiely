@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
+import { useAuth } from '../auth';
 import Logo from './Logo';
 import LegalFooter from './LegalFooter';
 
@@ -7,6 +9,8 @@ type FormState = { username: string; password: string; remember: boolean };
 type Status = 'idle' | 'submitting';
 
 export default function Login() {
+  const navigate = useNavigate();
+  const { refreshUser } = useAuth();
   const [form, setForm] = useState<FormState>({
     username: '',
     password: '',
@@ -44,7 +48,8 @@ export default function Login() {
           store.setItem('fiely.refreshToken', body.token.refreshToken);
         }
       }
-      window.location.href = '/';
+      await refreshUser();
+      navigate('/files', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
       setStatus('idle');
